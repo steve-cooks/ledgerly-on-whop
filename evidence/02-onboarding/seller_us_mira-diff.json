@@ -1,0 +1,44 @@
+{
+  "accountId": "biz_9ejVCcyqXnAYeV",
+  "changes": {
+    "verification": {
+      "before": {
+        "individual": null,
+        "business": null
+      },
+      "after": {
+        "individual": {
+          "status": "approved"
+        },
+        "business": null
+      }
+    },
+    "required_actions": {
+      "before": [
+        {
+          "action": "verify_identity",
+          "status": "required",
+          "title": "Complete verification to unlock cards and payouts",
+          "description": "Verify your identity to unlock a Whop card and start spending immediately.",
+          "cta_label": "Verify now",
+          "cta": "https://whop.com/dashboard/biz_9ejVCcyqXnAYeV/balance/?verify=true",
+          "icon_url": null,
+          "blocked_capabilities": []
+        }
+      ],
+      "after": []
+    },
+    "capabilities.standard_payout": {
+      "before": "inactive",
+      "after": "active"
+    },
+    "capabilities.crypto_payout": {
+      "before": "inactive",
+      "after": "active"
+    },
+    "capabilities.transfer": {
+      "before": "inactive",
+      "after": "active"
+    }
+  }
+}
