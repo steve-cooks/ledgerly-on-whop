@@ -1,0 +1,58 @@
+{
+  "platform": {
+    "id": "biz_3iFse5N7RWo86f",
+    "title": "Ledgerly"
+  },
+  "connected": [
+    {
+      "externalId": "seller_us_mira",
+      "accountId": "biz_9ejVCcyqXnAYeV",
+      "created": false,
+      "expiresAt": "2026-10-06T00:05:56.000Z",
+      "onboardingUrl": "<redacted link>"
+    },
+    {
+      "externalId": "seller_de_vorlage",
+      "accountId": "biz_Vo8bzz6O0bWPcR",
+      "created": true,
+      "expiresAt": "2026-10-06T00:05:58.000Z",
+      "onboardingUrl": "<redacted link>"
+    },
+    {
+      "externalId": "seller_br_batida",
+      "accountId": "biz_oLmOUobBcpkXHb",
+      "created": true,
+      "expiresAt": "2026-10-06T00:06:01.000Z",
+      "onboardingUrl": "<redacted link>"
+    }
+  ],
+  "rerun_same_ids": true,
+  "create_twice_same_seller": {
+    "original": "biz_Vo8bzz6O0bWPcR",
+    "second_raw_create": {
+      "ok": true,
+      "id": "biz_Vo8bzz6O0bWPcR"
+    }
+  },
+  "create_twice_with_idempotency_key": {
+    "original": "biz_Vo8bzz6O0bWPcR",
+    "replay": {
+      "ok": true,
+      "id": "biz_Vo8bzz6O0bWPcR"
+    }
+  },
+  "nested_with_child_token": {
+    "ok": false,
+    "status": 403,
+    "error": {
+      "error": {
+        "type": "forbidden",
+        "message": "An API key scoped to a business is required"
+      }
+    }
+  },
+  "nested_with_parent_company_id_param": {
+    "ok": true,
+    "id": "biz_imW7SL959LNYDA"
+  }
+}
