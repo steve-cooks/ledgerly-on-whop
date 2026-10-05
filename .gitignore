@@ -1,7 +1,24 @@
+# deps / build
+node_modules
+/.next/
+/out/
+/build
+/coverage
+*.tsbuildinfo
+next-env.d.ts
+.pnp.*
+.yarn/*
+
+# env (keep the example)
 .env*
 !.env.example
-node_modules
-.next
+
+# local tooling
 .vercel
-notes/
 supabase/.temp
+.DS_Store
+*.pem
+*.log
+
+# private working notes (not for the public repo)
+notes/
