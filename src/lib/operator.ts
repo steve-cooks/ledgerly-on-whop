@@ -303,6 +303,11 @@ export function sameOrigin(req: Request) {
 }
 
 /** Whop's dashboard: Ledgerly's connected accounts, or one of them. */
+/** Whop's Developer page for Ledgerly's account (webhooks and their delivery logs). */
+export function whopDeveloperUrl() {
+  return `https://whop.com/dashboard/${env().WHOP_PLATFORM_ACCOUNT_ID}/developer/`;
+}
+
 export function whopDashboardUrl(accountId?: string | null) {
   return `https://whop.com/dashboard/${env().WHOP_PLATFORM_ACCOUNT_ID}/connected-companies/${accountId ?? ""}`;
 }

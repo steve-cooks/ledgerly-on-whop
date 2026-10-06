@@ -11,6 +11,9 @@ const schema = z.object({
   CRON_SECRET: z.string().min(16).optional(),
   // Optional Slack-compatible incoming webhook for ops alerts.
   ALERT_WEBHOOK_URL: z.string().url().optional(),
+  // Optional: where the hourly job's runs can be seen (e.g. the Vercel project's Cron Jobs page).
+  // The console's "Books vs Whop" card links there.
+  OPS_JOB_URL: z.string().url().optional(),
   // Demo sign-in (stand-in for Ledgerly's auth). Off unless explicitly enabled; no default secret.
   DEMO_LOGIN_ENABLED: z.enum(["true", "false"]).default("false"),
   SESSION_SECRET: z.string().min(32).optional(),

@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { ModeToggle, OperatorNotice, ReminderButton, feeLabel, modeExplainer, requestTime, timeAgo } from "@/components/operator-controls";
 import { Badge, Card, Page, SiteHeader, flag, money } from "@/components/ui";
 import { sql } from "@/lib/db";
-import { listSellers, needsVerification, verificationLabel, whopDashboardUrl } from "@/lib/operator";
+import { env } from "@/lib/env";
+import { listSellers, needsVerification, verificationLabel, whopDashboardUrl, whopDeveloperUrl } from "@/lib/operator";
 import { currentOperator } from "@/lib/seller-session";
 
 export const dynamic = "force-dynamic";
@@ -125,27 +126,38 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
         )}
 
         <div className="grid gap-6 lg:grid-cols-3">
-          <Card title="Needs verification" description="Sellers Whop hasn't fully verified yet.">
-            <p className="text-3xl font-semibold tabular">{list.counts.needsVerification}</p>
-            <p className="text-sm text-muted">{q(list.q)}of {list.counts.all} sellers</p>
-          </Card>
-          <Card title="Webhooks" description="Signed and stored; each one applied once.">
-            <p className="text-3xl font-semibold tabular">{events[0].processed}</p>
-            <p className="text-sm text-muted">of {events[0].n} events processed</p>
-          </Card>
-          <Card title="Books vs Whop" description="Hourly: sync payouts, reconcile every seller, settle shares.">
-            {lastRun ? (
-              <div className="space-y-2">
-                <Badge tone={lastRun.ok ? "good" : "bad"}>{lastRun.ok ? "All sellers match" : "Needs attention"}</Badge>
-                <p className="text-xs text-muted">
-                  Run #{lastRun.id} ·{" "}
-                  {new Date(lastRun.started_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })} UTC
-                </p>
-              </div>
-            ) : (
-              <p className="text-sm text-muted">No run yet.</p>
-            )}
-          </Card>
+          <StatLink href={whopDashboardUrl()}>
+            <Card title="Needs verification" description="Sellers Whop hasn't fully verified yet." action={<LinkHint label="Whop" />} className="h-full">
+              <p className="text-3xl font-semibold tabular">{list.counts.needsVerification}</p>
+              <p className="text-sm text-muted">{q(list.q)}of {list.counts.all} sellers</p>
+            </Card>
+          </StatLink>
+          <StatLink href={whopDeveloperUrl()}>
+            <Card title="Webhooks" description="Signed and stored; each one applied once." action={<LinkHint label="Whop" />} className="h-full">
+              <p className="text-3xl font-semibold tabular">{events[0].processed}</p>
+              <p className="text-sm text-muted">of {events[0].n} events processed</p>
+            </Card>
+          </StatLink>
+          <StatLink href={env().OPS_JOB_URL}>
+            <Card
+              title="Books vs Whop"
+              description="Hourly: sync payouts, reconcile every seller, settle shares."
+              action={env().OPS_JOB_URL ? <LinkHint label="Job runs" /> : undefined}
+              className="h-full"
+            >
+              {lastRun ? (
+                <div className="space-y-2">
+                  <Badge tone={lastRun.ok ? "good" : "bad"}>{lastRun.ok ? "All sellers match" : "Needs attention"}</Badge>
+                  <p className="text-xs text-muted">
+                    Run #{lastRun.id} ·{" "}
+                    {new Date(lastRun.started_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })} UTC
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-muted">No run yet.</p>
+              )}
+            </Card>
+          </StatLink>
 
           <Card
             title="Sellers"
@@ -339,4 +351,23 @@ function PageLink({ href, children }: { href: string | null; children: ReactNode
       {children}
     </span>
   );
+}
+
+/** A console stat card that opens where its numbers come from (Whop, or the job's runs). */
+function StatLink({ href, children }: { href?: string; children: ReactNode }) {
+  if (!href) return <div>{children}</div>;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group block rounded-2xl transition hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(15,26,23,0.08)] focus-visible:outline-2 focus-visible:outline-accent"
+    >
+      {children}
+    </a>
+  );
+}
+
+function LinkHint({ label }: { label: string }) {
+  return <span className="whitespace-nowrap text-xs font-medium text-accent-ink group-hover:underline">{label} ↗</span>;
 }
