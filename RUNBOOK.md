@@ -15,18 +15,20 @@ What to do when something looks wrong. Every command here is safe to run more th
 | `pnpm ledgerly reprocess EVENT_TYPE` | Re-apply every stored event of a type (after fixing a handler). |
 | Whop's webhook replay | Re-send events **we never stored** (endpoint down, webhook disabled). See "Webhooks aren't arriving". |
 | `pnpm ledgerly trace PAY_ID` | Whop's fee lines and balances for one payment. |
+| `pnpm ledgerly sellers:sync [ID]` | Refresh the console's verification mirror (status, open actions, title) from Whop, for one seller or all. |
 | `pnpm ledgerly smoke` | Live checks of the deployment that move no money. |
 
-The operator console (`/`, operator sign-in) shows the last hourly ops run. Whop's side is in the Whop dashboard (Payments, Sub accounts, Developer → Webhooks).
+The operator console (`/`, Sign in with Whop) shows the last hourly ops run. Whop's side is in the Whop dashboard (Payments, Sub accounts, Developer → Webhooks).
 
 ---
 
 ## The hourly ops run says "Needs attention"
 
-Each run (`/api/cron/ops`) retries deferred and failed webhook events, settles transfers webhooks haven't, settles orders that still owe a seller, then syncs payouts and reconciles sellers. One failing event or stage doesn't stop the others. The alert lists what was wrong:
+Each run (`/api/cron/ops`) retries deferred and failed webhook events, settles transfers webhooks haven't, settles orders that still owe a seller, refreshes the verification mirror for up to 100 sellers, then syncs payouts and reconciles sellers. One failing event or stage doesn't stop the others. The alert lists what was wrong:
 
 - `event msg_… (type) fails: …`: that stored event's handler throws every time. Fix the cause (often bad data in the payload or a bug), then `pnpm ledgerly reprocess`.
 - `settle <order>: transfer ctt_… failed at Whop and may still succeed`: see "A platform-collected seller wasn't paid".
+- `verification sync: N sellers failed (first: …)`: Whop calls for those sellers failed. Usually transient; the next run retries. Only affects the console's seller list.
 - `<stage> failed: …`: that whole stage errored (often Whop or the database unreachable). The next run retries it.
 
 1. Run `pnpm ledgerly reconcile --fix` to see each seller's discrepancies.
@@ -104,6 +106,51 @@ Whop opened a chargeback. The order is held: `GET /api/orders/:id` returns `deli
 
 ---
 
+## Checkout fails with "You are not authorized"
+
+Whop refuses an inline product sent again to a seller's account. Checkouts reuse the seller's Whop product by id (`whop_products`, keyed by account and `ledgerly-<sku>`), and look it up with `products.list` when no row exists.
+
+1. Vercel logs: `whop product lookup failed` means the lookup itself errored.
+2. Find the product in Whop (the seller's account, external identifier `ledgerly-<sku>`) and add the row: `insert into whop_products (account_id, external_identifier, whop_product_id) values (…)`.
+3. Retry with a **new** order (new `requestKey`; on the shop, reload the product page). The failed order's checkout key `ledgerly:checkout:<orderId>` replays the 403 for 24 hours.
+
+---
+
+## A staff member can't sign in to the console
+
+The sign-in page says why:
+
+- **"isn't on Ledgerly's team"**: add them in Whop (Settings → Team) as owner, admin, manager or support. Other roles are refused.
+- **"isn't set up on this deployment"**: `WHOP_OAUTH_CLIENT_ID`, `WHOP_OAUTH_CLIENT_SECRET` or `SESSION_SECRET` is missing on the host.
+- **"Whop couldn't complete the sign-in"**: Vercel logs show `whop sign-in failed …`. `401 invalid_client` means the "Ledgerly Console" app lacks `oauth:token_exchange` or the secret is wrong. A Whop error from the team check means the API key lacks `company:authorized_user:read`.
+- **"expired or was opened in another browser"**: start again in one browser; an attempt lasts 10 minutes.
+
+Removing someone from the team takes effect at their next sign-in; a session lasts at most 8 hours.
+
+---
+
+## A seller can't sign in (demo marketplace)
+
+- **"needs a verified email address"** (Continue with Whop): Whop didn't return a verified email, and we match sellers by email. The seller verifies their email on Whop and tries again.
+- **"Whop couldn't complete the sign-in"**: Vercel logs show `seller whop sign-in failed …`. `401 invalid_client` is the "Ledgerly" app's `oauth:token_exchange` permission or `WHOP_SELLER_APP_KEY`. A Supabase admin error: check `SUPABASE_SERVICE_ROLE_KEY`.
+- **"Sign in with Whop isn't set up"**: `WHOP_SELLER_APP_ID` or `WHOP_SELLER_APP_KEY` is missing.
+- **No confirmation email**: Supabase's built-in email is rate-limited. Check Supabase → Auth logs, and set up custom SMTP.
+- **"That link has expired or was opened in a different browser"**: confirmation and Google links must finish in the browser that started them. Log in again.
+
+---
+
+## A seller says they didn't get a verification reminder
+
+Reminders are in-app only: there's no email or Whop notification (Whop apps can only notify accounts they're installed on). While verification is still open, the seller sees a banner on their status page `/sellers/:id` for 14 days, once signed in. Each one is in `seller_reminders` (who sent it, when). The button allows one per seller per 24 hours. To reach a seller off-site, email them from Ledgerly.
+
+---
+
+## The console's seller list shows the wrong verification state
+
+The list reads a local mirror, not Whop. `account.updated` keeps it current, and the hourly run refreshes up to 100 sellers. "Not synced yet" or a stale state: `pnpm ledgerly sellers:sync <external_id>` (or no id for everyone, e.g. after an import). Whop's dashboard (Sub accounts) is always live.
+
+---
+
 ## A seller's onboarding link expired
 
 `pnpm ledgerly onboarding-link <external_id>` (or `POST /api/sellers` again with the same details). It never creates a second account.
@@ -121,6 +168,8 @@ Whop opened a chargeback. The order is held: `GET /api/orders/:id` returns `deli
 | Secret | How |
 | --- | --- |
 | `WHOP_API_KEY` | Dashboard → Developer → create a new key with the same permissions, update the host env, redeploy, then delete the old key |
+| `WHOP_OAUTH_CLIENT_SECRET`, `WHOP_SELLER_APP_KEY` | New client secret from the app's OAuth tab in Whop, update env, redeploy |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings: the legacy `service_role` key changes with the JWT secret, which also ends seller sessions. Update env, redeploy |
 | `WHOP_WEBHOOK_SECRET` | Recreate the webhook (`pnpm ledgerly webhook:create` after deleting the old one), update env, redeploy |
 | `ADMIN_API_TOKEN`, `CRON_SECRET`, `SESSION_SECRET` | `openssl rand -hex 32`, update env (and Ledgerly's backend for the admin token), redeploy. Rotating `SESSION_SECRET` signs everyone out |
 | Database password | Supabase → Settings → Database, then update `DATABASE_URL` |
