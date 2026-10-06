@@ -242,7 +242,7 @@ const commands: Record<string, () => Promise<unknown>> = {
     });
     await check("operator console requires sign-in", async () => {
       const html = await (await get("/")).text();
-      return [html.includes("Operator sign-in required"), "gate shown"];
+      return [html.includes("Sign in with Whop") && !html.includes("Needs verification"), "Whop sign-in gate shown"];
     });
     await check("expired or forged sign-in link is refused", async () => {
       const r = await get("/demo/login?t=operator.1.forged");
