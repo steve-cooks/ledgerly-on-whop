@@ -46,7 +46,7 @@ async function main() {
   const nested = childToken.ok
     ? await capture(() =>
         new WhopClient({ token: childToken.result.token }).accounts.create({
-          email: "seller+ledgerly-nested@example.com",
+          email: "nested@seller.example",
           title: "Nested Seller",
           metadata: { external_id: "seller_nested_attempt" },
         }),
@@ -55,7 +55,7 @@ async function main() {
   // And with the platform key, naming a parent explicitly the way the brief's `parent_company_id` suggests.
   const nestedViaParam = await capture(() =>
     whop().accounts.create(
-      { email: "seller+ledgerly-nested@example.com", title: "Nested Seller" },
+      { email: "nested@seller.example", title: "Nested Seller" },
       { additionalBodyParameters: { parent_company_id: us.accountId } },
     ),
   );

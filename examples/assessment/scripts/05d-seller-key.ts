@@ -29,7 +29,7 @@ async function main() {
     create_account_under_connected_account: summarize(
       await capture(() =>
         seller.accounts.create({
-          email: "seller+ledgerly-grandchild@example.com",
+          email: "grandchild@seller.example",
           title: "Grandchild Seller",
           metadata: { external_id: "seller_grandchild_attempt" },
         }),
