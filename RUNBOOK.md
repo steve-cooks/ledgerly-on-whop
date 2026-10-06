@@ -17,6 +17,7 @@ What to do when something looks wrong. Every command here is safe to run more th
 | `pnpm ledgerly trace PAY_ID` | Whop's fee lines and balances for one payment. |
 | `pnpm ledgerly sellers:sync [ID]` | Refresh the console's verification mirror (status, open actions, title) from Whop, for one seller or all. |
 | `pnpm ledgerly smoke` | Live checks of the deployment that move no money. |
+| Console **Import sellers** (`/import`) | Import up to 200 existing sellers from a CSV, with a preview. `pnpm ledgerly import-sellers` for more. |
 
 The operator console (`/`, Sign in with Whop) shows the last hourly ops run. Whop's side is in the Whop dashboard (Payments, Sub accounts, Developer → Webhooks).
 
@@ -136,6 +137,12 @@ Removing someone from the team takes effect at their next sign-in; a session las
 - **"Sign in with Whop isn't set up"**: `WHOP_SELLER_APP_ID` or `WHOP_SELLER_APP_KEY` is missing.
 - **No confirmation email**: Supabase's built-in email is rate-limited. Check Supabase → Auth logs, and set up custom SMTP.
 - **"That link has expired or was opened in a different browser"**: confirmation and Google links must finish in the browser that started them. Log in again.
+
+---
+
+## An imported seller got a new, empty store
+
+They're linked to their imported store only when they sign in with a **verified** email that matches exactly **one** imported seller nobody has claimed. Check `select external_id, email, whop_account_id from sellers where lower(email) = lower('<email>')` and `seller_users` for their user: a different email, an unconfirmed email, two sellers with that email, or an import that errored (no `whop_account_id`) all fall through to opening a new store. If they haven't sold yet, point their `seller_users` row at the imported seller (`update seller_users set seller_external_id = '<imported>', store_name = '<title>' where auth_user_id = '<user>'`); the empty seller's Whop account stays unused.
 
 ---
 

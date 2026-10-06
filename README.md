@@ -20,7 +20,7 @@ Around the payments core it hosts an **operator console** for Ledgerly staff (`/
 | The brief asked for | Where it is |
 | --- | --- |
 | Part 1: platform, connected accounts, onboarding, both money flows, embedded payouts, webhook + operations | Ids, scripts and real API responses: [`examples/assessment/`](examples/assessment/README.md) |
-| Idempotent onboarding by external id | [`src/lib/onboarding.ts`](src/lib/onboarding.ts), `POST /api/sellers`, bulk import ([HANDOVER](HANDOVER.md#migrating-the-3000-existing-sellers)) |
+| Idempotent onboarding by external id | [`src/lib/onboarding.ts`](src/lib/onboarding.ts), `POST /api/sellers`, bulk import from the console or CLI ([HANDOVER](HANDOVER.md#migrating-the-3000-existing-sellers)) |
 | Checkout with the 8% fee, validated | [`src/lib/checkout.ts`](src/lib/checkout.ts) (`platformFee`, integer cents) and [Money flows](#money-flows) |
 | A webhook consumer they'd trust in production (Standard Webhooks, idempotent, routed to the right seller) | [Webhooks: a consumer to trust in production](#webhooks-a-consumer-to-trust-in-production) |
 | A reconciliation job | [Reconciliation](#reconciliation): `pnpm ledgerly reconcile` and the hourly ops job |
@@ -84,7 +84,7 @@ flowchart LR
 | [`src/lib/wallet.ts`](src/lib/wallet.ts) | Short-lived, explicitly scoped tokens for the embedded payouts UI |
 | [`supabase/migrations`](supabase/migrations) | Schema |
 | [`cli/ledgerly.ts`](cli/ledgerly.ts) | The `pnpm ledgerly` operations CLI |
-| [`src/lib/import-sellers.ts`](src/lib/import-sellers.ts) | Bulk seller migration from CSV |
+| [`src/lib/import-sellers.ts`](src/lib/import-sellers.ts), [`import-csv.ts`](src/lib/import-csv.ts) | Bulk seller migration from CSV (CLI and the console's `/import`) |
 | [`src/lib/ops-job.ts`](src/lib/ops-job.ts) | Hourly job: retry deferred events, refresh in-flight transfers, settle, sync verification, sync payouts, reconcile, alert |
 | [`src/lib/operator.ts`](src/lib/operator.ts) | Operator console: verification mirror, seller list, reminders, payment mode, per-seller fee |
 | [`src/lib/whop-oauth.ts`](src/lib/whop-oauth.ts) | Sign in with Whop (staff and seller apps), Ledgerly team check |
@@ -193,7 +193,7 @@ Whop delivers **at least once**, retries for ~3 days, doesn't guarantee order, a
 7. **Version-tolerant routing**: `account_id` (payloads pinned to `2026-08-14`+), else `company_id` (older/unpinned), else the object's own account. Legacy `withdrawal.*` uses the payout handler (same `wdrl_` id).
 8. Work that calls Whop (the seller transfer) runs **after** the 2xx via `after()`, so Whop never waits on it.
 
-**Tested**: [`tests/integration/`](tests/integration) runs the real routes against Postgres with Whop stubbed: concurrent duplicate deliveries, near-duplicates, a handler crash after partial writes (all rolled back, `500`, retry succeeds), out-of-order payment and payout events, refund-before-payment, concurrent and pending refunds, disputed → refunded → won, replayed old dispute events, refund or dispute arriving before payment (seller not paid), payout reversals, denials and amount changes, payout repair (missing final state, no backwards moves, a webhook landing mid-read), double `transfer.completed`, a failed transfer later succeeding (paid once), refused vs unanswered transfer requests, a completion webhook beating the create response, completion found only by polling, a poison event in the hourly job, conflicting key reuse, concurrent checkout retries and onboarding retries. Operator actions, both Whop sign-ins, product reuse and the marketplace (buy, download, opening a store) have their own. These are route + database tests, not deployed end-to-end tests. **Proven live**: replaying real deliveries returns `duplicate` and changes nothing (`pnpm ledgerly smoke`, [evidence](examples/assessment/evidence/05-webhooks/test-replay-suspend.json)).
+**Tested**: [`tests/integration/`](tests/integration) runs the real routes against Postgres with Whop stubbed: concurrent duplicate deliveries, near-duplicates, a handler crash after partial writes (all rolled back, `500`, retry succeeds), out-of-order payment and payout events, refund-before-payment, concurrent and pending refunds, disputed → refunded → won, replayed old dispute events, refund or dispute arriving before payment (seller not paid), payout reversals, denials and amount changes, payout repair (missing final state, no backwards moves, a webhook landing mid-read), double `transfer.completed`, a failed transfer later succeeding (paid once), refused vs unanswered transfer requests, a completion webhook beating the create response, completion found only by polling, a poison event in the hourly job, conflicting key reuse, concurrent checkout retries and onboarding retries. Operator actions, seller import and claiming, both Whop sign-ins, product reuse and the marketplace (buy, download, opening a store) have their own. These are route + database tests, not deployed end-to-end tests. **Proven live**: replaying real deliveries returns `duplicate` and changes nothing (`pnpm ledgerly smoke`, [evidence](examples/assessment/evidence/05-webhooks/test-replay-suspend.json)).
 
 ### What is and isn't guaranteed
 
@@ -250,9 +250,10 @@ On its first runs it caught two real bugs in this repo's handlers (a replayed `p
 - **Payment mode**: direct or platform-collected. Applies to new purchases; logged in `seller_mode_changes`.
 - **Ledgerly fee**: a percentage per seller, 0–50%; empty means the platform default (`PLATFORM_FEE_BPS`). Stored as `sellers.fee_bps`, logged in `seller_fee_changes`, applies to new purchases. For direct sellers it's the checkout's `application_fee_amount`; for platform-collected sellers it comes off their share.
 - **Open in Whop**: each seller links to their connected account in Whop's dashboard.
+- **Import sellers** (`/import`): upload or paste a CSV of existing sellers (up to 200 rows; bigger batches use the CLI), **Preview** (a dry run: will create, already on Whop, or the error per row), then **Import**. Each row creates or finds the seller's Whop account, idempotent by external id. No onboarding links are minted: when the seller signs in with that email they're [recognised](#sign-in) and continue verification from their dashboard. Results per row with Open in Whop, downloadable as CSV; each run is recorded in `seller_imports`.
 - Cards for webhooks processed, the last hourly run and recent orders.
 
-The same tools show on a seller's `/sellers/:id` page for staff. Each action is a form post to `/api/operator/sellers/:id/<action>`: it needs an operator session and a same-origin request, and redirects back with the outcome.
+The same tools show on a seller's `/sellers/:id` page for staff. Each action is a form post to `/api/operator/sellers/:id/<action>`: it needs an operator session and a same-origin request, and redirects back with the outcome. The import page posts JSON to `/api/operator/import` under the same checks.
 
 ---
 
@@ -261,7 +262,7 @@ The same tools show on a seller's `/sellers/:id` page for staff. Each action is 
 Stands in for Ledgerly's storefront so the whole flow can be demoed with real money. In production Ledgerly's own site does this and calls the [HTTP API](#http-api); the payments code underneath is the same.
 
 - **Buyers** (`/shop`, no account): **Buy** creates a Whop checkout (`createCheckout`, as `POST /api/checkouts` does) and sends them to Whop. Whop returns them to `/orders/:id`, which shows **Download** once the order is `paid`. The file comes from the private Supabase Storage bucket `deliverables` through a 60-second signed URL, re-checked on every click.
-- **Sellers** (`/sell`): sign up or log in with email and password, Google or Whop. `/sell/onboard` opens a store: it creates the seller (direct mode) and their Whop connected account, then sends them to Whop's identity verification. `/sell/dashboard` has their products (files uploaded straight to Storage, up to 10 MB), verification status and a link to the Seller Hub.
+- **Sellers** (`/sell`): sign up or log in with email and password, Google or Whop. `/sell/onboard` opens a store: it creates the seller (direct mode) and their Whop connected account, then sends them to Whop's identity verification. A seller Ledgerly already imported skips this and gets their existing store ([Sign-in](#sign-in)). `/sell/dashboard` has their products (files uploaded straight to Storage, up to 10 MB), verification status and a link to the Seller Hub.
 - The shop lists active products with a file, from sellers that have a Whop account.
 
 ---
@@ -278,6 +279,7 @@ In production, sellers sign in through Ledgerly's own site, which replaces the m
 
 - **Staff**: OAuth 2.1 with PKCE on the server, as a confidential client (`WHOP_OAUTH_CLIENT_SECRET` never reaches the browser). Once Whop confirms who they are, the service checks Ledgerly's Whop team (`teamMembers.list`, needs `company:authorized_user:read`) and lets in owners, admins, managers and support; anyone else is told why. Whop's tokens aren't kept (the refresh token is revoked straight away). The session is a signed cookie that lasts 8 hours. Manage staff in Whop (Settings → Team).
 - **Sellers**: Supabase Auth with email confirmation on. Google is a Supabase provider. Whop can't be one: Whop requires an OIDC `nonce` that Supabase's custom providers don't send. So our server runs the Whop round trip (same code as staff, with the seller app), requires a verified Whop email, finds or creates the Supabase user with that email (an existing unconfirmed one gets a random new password first, since anyone could have set the old one), and starts their Supabase session (`auth.admin.generateLink` → `verifyOtp`). `seller_users` links a Supabase user to their seller (one store each). `src/proxy.ts` refreshes the Supabase session cookie on page requests.
+- **Imported sellers**: a signed-in user without a store whose **verified** email (Supabase `email_confirmed_at`) matches exactly one onboarded seller that nobody has claimed is linked to it (`claimImportedSeller`: in `/auth/callback`, the Whop callback, and `/sell/onboard` as a safety net). They land on that store's dashboard and continue verification there; no second Whop account. An unverified email, no match, or several sellers with that email: they open a new store as usual.
 - **Demo links** expire in 24 hours and open an 8-hour session. Tokens are signed with their purpose: a link can only start a session and a session cookie can't be exchanged for a new one. Off unless `DEMO_LOGIN_ENABLED=true`; every console or demo session needs `SESSION_SECRET`.
 
 `currentSeller()` is the demo seller session if there is one, else the Supabase seller. A staff session doesn't hide it: someone can be both. `isOperator()` is true only for a staff session. Seller status pages show details only to that seller or staff, and staff tools only on other people's stores; on your own store you see the seller view.
@@ -300,6 +302,7 @@ All admin endpoints take `Authorization: Bearer $ADMIN_API_TOKEN`. Errors: `400`
 | `GET` | `/api/sellers/:id/payouts-portal` | (seller session) | Redirect to Whop's hosted portal |
 | `GET` | `/api/sellers/:id/onboarding-link` | (seller session) | Redirect to a fresh Whop onboarding link (the "Continue verification" / "Get a new link" button on `/sellers/:id`) |
 | `POST` | `/api/operator/sellers/:id/<action>` | (operator session, same-origin form post) | Redirect back with the outcome. See [Operator console](#operator-console) |
+| `POST` | `/api/operator/import` | `{ csv, dryRun }` (operator session, same-origin) | `{ results, counts }`, one result per row. `413` over 200 rows, `400` for a file without the header |
 | `POST` | `/shop/:productId/buy` | form `nonce` (same-origin only) | Redirect to Whop's checkout (or to the order if it's already paid). The order is keyed to the page's nonce and a per-browser buyer cookie, so a double click opens one order |
 | `GET` | `/orders/:orderId/download` | | Redirect to a 60-second signed file URL; `403` unless the order is `paid` |
 

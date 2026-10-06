@@ -63,6 +63,8 @@ Steps 3 and 5 are only for the demo marketplace; skip them once Ledgerly's own s
 
 ## Migrating the 3,000 existing sellers
 
+Two ways, same code and same CSV: the operator console's **Import sellers** (`/import`: upload or paste up to 200 rows, preview, import, download the results) for small batches and trials, and the CLI for the rest.
+
 ```bash
 pnpm ledgerly import-sellers sellers.csv --dry-run      # validate everything, create nothing
 pnpm ledgerly import-sellers sellers.csv                # create accounts + onboarding links
@@ -74,6 +76,7 @@ pnpm ledgerly import-sellers sellers.csv                # create accounts + onbo
 - One gap: if the service crashes after Whop creates an account but before saving its id, a re-run **within 24 hours** gets the same account back (Whop's idempotency key). After 24 hours it would create a second one. For a seller whose earlier attempt errored, check Whop first (Sub accounts, search the email; each account carries `metadata.external_id`).
 - Invalid rows are reported and skipped; valid rows in the same file are still imported. Use `--dry-run` first to see both.
 - It writes `sellers.results.csv` with each seller's Whop account id and onboarding link. Whop's links expire after about an hour, so **email sellers a link to their Ledgerly status page** (`/sellers/<id>`, behind Ledgerly's login) instead; its **Continue verification** button mints a fresh Whop link every time. The importer runs 3 at a time and retries Whop's rate limit (about 600 calls a minute), so 3,000 sellers take roughly 10–20 minutes.
+- **Sellers are recognised by email.** When an imported seller signs in to Ledgerly with that email (verified: Google, Whop, or a confirmed email and password), they're linked to their imported store instead of opening a new one, and continue verification from their dashboard. Two sellers with the same email aren't linked automatically; give each its own email or link them by hand. Ledgerly's own login does the same once it replaces the demo one: match on a verified email, link once.
 - After each batch run `pnpm ledgerly sellers:sync` so the console's "needs verification" list covers the new sellers (the hourly job refreshes at most 100 sellers a run; webhooks keep them current after that).
 - Suggested rollout: 50 sellers, check the results and the next hourly ops run, then batches of 500.
 

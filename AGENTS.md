@@ -37,7 +37,8 @@ Unit tests need nothing. Integration tests need Docker (they start their own Pos
 | Envelope parsing / which account an event belongs to | `src/lib/webhooks.ts` (`eventAccountId`) |
 | Reconciliation and payout repair | `src/lib/reconcile.ts` |
 | Hourly job (settle, verification sync, payout sync, reconcile, alert) | `src/lib/ops-job.ts`, `src/app/api/cron/ops/route.ts`, `vercel.json` |
-| Bulk seller migration | `src/lib/import-sellers.ts` |
+| Bulk seller migration (CLI and console) | `src/lib/import-sellers.ts`, browser-safe CSV bits in `src/lib/import-csv.ts`, page `src/app/import/`, route `src/app/api/operator/import/route.ts` |
+| Linking an imported seller at sign-in | `claimImportedSeller` in `src/lib/seller-accounts.ts` (called from `src/app/auth/` callbacks and `/sell/onboard`) |
 | Seller payouts page (Whop Elements) | `src/app/sellers/[externalId]/payouts/`, token minting in `src/lib/wallet.ts` |
 | Seller status page (verification, reminder banner, staff tools) | `src/app/sellers/[externalId]/page.tsx` |
 | Staff sign-in (Sign in with Whop, team check) | `src/lib/whop-oauth.ts`, `src/app/api/auth/` |
@@ -71,7 +72,7 @@ Unit tests need nothing. Integration tests need Docker (they start their own Pos
 12. **Secrets and personal data stay out of output.** Don't print API keys, webhook secrets or tokens. Webhook payloads contain names, card BIN/last4 and addresses; don't log them or commit them (`examples/assessment/scripts/_evidence.ts` has the redaction list).
 13. **Never re-send an inline product to a connected account.** Whop answers an opaque `403 You are not authorized`. The first checkout for a SKU creates the product inline; later ones send `product_id` from `whop_products` (`findWhopProduct`). New checkout code goes through `createCheckout`.
 14. **Seller settings apply to new checkouts only.** Orders store their own `flow` and `platform_fee`; settlement and refunds read those, never the seller's current mode or fee.
-15. **Operator routes** check `currentOperator()` and `sameOrigin(req)` first and answer with a 303 to `backUrl(...)` carrying a `notice`. Changes run in a transaction that locks the seller row and record who did it (`seller_reminders`, `seller_mode_changes`, `seller_fee_changes`).
+15. **Operator routes** check `currentOperator()` and `sameOrigin(req)` first and answer with a 303 to `backUrl(...)` carrying a `notice` (the import route answers JSON to its page's `fetch`). Changes run in a transaction that locks the seller row and record who did it (`seller_reminders`, `seller_mode_changes`, `seller_fee_changes`, `seller_imports`).
 16. **`currentSeller()` is not "not staff".** It returns the demo-link seller, else the Supabase seller; a staff session doesn't hide it. Use `isOperator()` for staff checks, and show staff tools only when the viewer isn't that seller.
 17. **`supabaseAdmin()` is server-only.** It holds the service-role key and bypasses RLS: never import it into client code or expose the key as `NEXT_PUBLIC_*`. Product files stay in the private `deliverables` bucket; hand out short-lived signed URLs, downloads only for `paid` orders.
 
