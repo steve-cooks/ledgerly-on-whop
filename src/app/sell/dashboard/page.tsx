@@ -35,13 +35,22 @@ export default async function DashboardPage() {
 
   const id = encodeURIComponent(seller);
   const verified = overview ? overview.identity === "approved" && overview.requiredActions.length === 0 : false;
+  // What Whop actually allows right now: new accounts can usually take card payments before
+  // verification; withdrawals always need it.
+  const canSell = overview?.capabilities.accept_card_payments === "active";
   const status = !row.whop_account_id
     ? { tone: "warn" as const, label: "Not started", note: "Verify your identity with Whop to start selling." }
     : overview === undefined
       ? { tone: "neutral" as const, label: "Unavailable", note: "We couldn't reach Whop just now. Refresh in a moment." }
       : verified
         ? { tone: "good" as const, label: "Verified", note: "You're all set to sell and get paid." }
-        : { tone: "warn" as const, label: "Action needed", note: "You can sell now. Finish verifying your identity with Whop to withdraw your earnings." };
+        : {
+            tone: "warn" as const,
+            label: "Action needed",
+            note: canSell
+              ? "You can sell now. Finish verifying your identity with Whop to withdraw your earnings."
+              : "Finish verifying your identity with Whop to start selling and withdraw your earnings.",
+          };
 
   return (
     <>
@@ -106,7 +115,7 @@ export default async function DashboardPage() {
                 Open Seller Hub
               </Link>
             </Card>
-            {status.tone === "warn" && products.length > 0 && (
+            {overview && !canSell && products.length > 0 && (
               <Notice tone="warn">Buyers can&apos;t pay you until you&apos;re verified.</Notice>
             )}
           </div>
