@@ -104,10 +104,13 @@ async function session() {
   return token ? read(token, "session") : null;
 }
 
-/** The signed-in seller's external id, or null (operators are not sellers). */
+/**
+ * The signed-in seller's external id, or null. A demo seller link wins; otherwise the seller's
+ * Supabase session. A staff (operator) session doesn't hide it: someone can be both.
+ */
 export async function currentSeller() {
   const s = await session();
-  if (s) return s.s !== OPERATOR ? s.s : null;
+  if (s && s.s !== OPERATOR) return s.s;
   return supabaseSeller();
 }
 

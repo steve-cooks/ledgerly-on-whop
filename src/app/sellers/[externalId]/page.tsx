@@ -53,7 +53,8 @@ export default async function SellerPage({
   const verified = s.identity === "approved";
   const isSeller = (await currentSeller()) === externalId;
   const needsVerification = !verified || s.requiredActions.length > 0;
-  const operator = await isOperator();
+  // Staff tools are for other people's stores; on your own store you see the seller view.
+  const operator = (await isOperator()) && !isSeller;
   const reminder = await lastReminder(externalId);
   const now = requestTime();
   const recentReminder = reminder && now - reminder.sent_at.getTime() < REMINDER_VISIBLE_MS ? reminder : null;

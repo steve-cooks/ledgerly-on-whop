@@ -218,11 +218,13 @@ describe("currentSeller with a Supabase session", () => {
     expect(await currentSeller()).toBeNull();
   });
 
-  it("a demo or operator session takes precedence", async () => {
+  it("a staff (operator) session doesn't hide the seller's own session", async () => {
     await seed();
     await (await db())`insert into seller_users (auth_user_id, seller_external_id, store_name) values (${USER}, 'seller_us', 'US Store')`;
     supa.claims = { sub: USER };
-    await (await import("@/lib/seller-session")).startOperatorSession("Ops");
-    expect(await currentSeller()).toBeNull();
+    const session = await import("@/lib/seller-session");
+    await session.startOperatorSession("Ops");
+    expect(await currentSeller()).toBe("seller_us");
+    expect(await session.isOperator()).toBe(true);
   });
 });

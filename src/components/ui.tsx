@@ -97,7 +97,13 @@ export function flag(country: string) {
   return String.fromCodePoint(...[...country.toUpperCase()].map((c) => 0x1f1a5 + c.charCodeAt(0)));
 }
 
-export const COUNTRY_NAMES: Record<string, string> = { US: "United States", DE: "Germany", BR: "Brazil" };
+// Countries sellers can pick, A–Z by name (ISO 3166-1 alpha-2; sanctioned countries Whop can't pay
+// out to are left out). Whop's verification has the final say on eligibility.
+const COUNTRY_CODES = "AD AE AF AG AI AL AM AO AR AT AU AW AZ BA BB BD BE BF BG BH BI BJ BM BN BO BR BS BT BW BZ CA CD CF CG CH CI CL CM CN CO CR CV CY CZ DE DJ DK DM DO DZ EC EE EG ER ES ET FI FJ FM FR GA GB GD GE GH GI GL GM GN GQ GR GT GW GY HK HN HR HT HU ID IE IL IN IQ IS IT JM JO JP KE KG KH KI KM KN KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MG MH MK ML MM MN MO MR MT MU MV MW MX MY MZ NA NE NG NI NL NO NP NR NZ OM PA PE PG PH PK PL PR PS PT PW PY QA RO RS RW SA SB SC SE SG SI SK SL SM SN SO SR SS ST SV SZ TC TD TG TH TJ TL TM TN TO TR TT TV TW TZ UA UG US UY UZ VA VC VE VG VN VU WS XK YE ZA ZM ZW".split(" ");
+const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+export const COUNTRY_NAMES: Record<string, string> = Object.fromEntries(
+  COUNTRY_CODES.map((c) => [c, regionNames.of(c) ?? c] as const).sort((a, b) => a[1].localeCompare(b[1])),
+);
 
 export function money(amount: number | string, currency = "usd") {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(Number(amount));
