@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { MarketHeader, Notice } from "@/components/market";
+import { feePercent } from "@/components/operator-controls";
 import { btnGhost, btnPrimary } from "@/components/styles";
 import { Badge, Card, Page, money } from "@/components/ui";
+import { sellerFeeBps } from "@/lib/checkout";
 import { sql } from "@/lib/db";
 import { sellerProducts } from "@/lib/products";
 import { authUser } from "@/lib/seller-accounts";
@@ -21,7 +23,7 @@ export default async function DashboardPage() {
 
   const [[row], products, overview] = await Promise.all([
     sql()`
-      select coalesce(su.store_name, s.external_id) as store_name, s.whop_account_id
+      select coalesce(su.store_name, s.external_id) as store_name, s.whop_account_id, s.fee_bps
       from sellers s left join seller_users su on su.seller_external_id = s.external_id
       where s.external_id = ${seller}`,
     sellerProducts(seller),
@@ -111,6 +113,9 @@ export default async function DashboardPage() {
               </div>
             </Card>
             <Card title="Earnings and payouts" description="See your balance and withdraw to your bank in the Seller Hub.">
+              <p className="mb-4 text-sm text-muted">
+                Ledgerly fee: <span className="font-medium text-ink tabular">{feePercent(sellerFeeBps(row))}</span> per sale.
+              </p>
               <Link href={`/sellers/${id}/payouts`} className={`${btnGhost} w-full`}>
                 Open Seller Hub
               </Link>

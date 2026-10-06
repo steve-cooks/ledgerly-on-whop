@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ModeToggle, OperatorNotice, ReminderButton, modeExplainer, requestTime, timeAgo } from "@/components/operator-controls";
+import { ModeToggle, OperatorNotice, ReminderButton, feeLabel, modeExplainer, requestTime, timeAgo } from "@/components/operator-controls";
 import { Badge, Card, Page, SiteHeader, flag, money } from "@/components/ui";
 import { sql } from "@/lib/db";
 import { listSellers, needsVerification, verificationLabel, whopDashboardUrl } from "@/lib/operator";
@@ -141,7 +141,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
 
           <Card
             title="Sellers"
-            description="Verification is mirrored from Whop; payment mode applies to new purchases only."
+            description="Verification is mirrored from Whop; payment mode and Ledgerly fee apply to new purchases only."
             className="lg:col-span-3"
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -201,12 +201,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
               </div>
             ) : (
               <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[760px] text-sm">
+                <table className="w-full min-w-[860px] text-sm">
                   <thead className="text-left text-xs uppercase tracking-wide text-subtle">
                     <tr>
                       <th className="py-2 font-medium">Seller</th>
                       <th className="py-2 font-medium">Verification</th>
                       <th className="py-2 font-medium">Payment mode</th>
+                      <th className="py-2 font-medium">Ledgerly fee</th>
                       <th className="py-2 font-medium">Last reminder</th>
                       <th className="py-2 text-right font-medium">
                         <span className="sr-only">Actions</span>
@@ -229,6 +230,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
                           </td>
                           <td className="py-3 pr-4">
                             <ModeToggle externalId={s.external_id} mode={s.collection_mode} back={back} />
+                          </td>
+                          <td className="py-3 pr-4 tabular">
+                            <span className={s.fee_bps == null ? "whitespace-nowrap text-muted" : "font-medium text-ink"}>{feeLabel(s.fee_bps)}</span>
                           </td>
                           <td className="py-3 pr-4 text-muted">{s.last_reminder_at ? timeAgo(s.last_reminder_at, now) : "Never"}</td>
                           <td className="py-3">
@@ -281,7 +285,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
                     <th className="py-2 font-medium">Seller</th>
                     <th className="py-2 font-medium">Flow</th>
                     <th className="py-2 text-right font-medium">Price</th>
-                    <th className="py-2 text-right font-medium">Ledgerly 8%</th>
+                    <th className="py-2 text-right font-medium">Ledgerly fee</th>
                     <th className="py-2 text-right font-medium">Status</th>
                   </tr>
                 </thead>

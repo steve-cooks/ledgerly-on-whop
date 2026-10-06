@@ -1,7 +1,18 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { ModeToggle, OperatorNotice, ReminderButton, formatDate, modeExplainer, requestTime, timeAgo } from "@/components/operator-controls";
+import {
+  FeeControl,
+  ModeToggle,
+  OperatorNotice,
+  ReminderButton,
+  feeLabel,
+  formatDate,
+  modeExplainer,
+  requestTime,
+  timeAgo,
+} from "@/components/operator-controls";
 import { Avatar, Badge, Card, COUNTRY_NAMES, Page, SiteHeader, flag } from "@/components/ui";
+import { sellerFeeBps } from "@/lib/checkout";
 import { REMINDER_VISIBLE_MS, lastReminder, whopDashboardUrl } from "@/lib/operator";
 import { getSellerOverview } from "@/lib/seller-overview";
 import { currentSeller, isOperator } from "@/lib/seller-session";
@@ -59,7 +70,7 @@ export default async function SellerPage({
   const now = requestTime();
   const recentReminder = reminder && now - reminder.sent_at.getTime() < REMINDER_VISIBLE_MS ? reminder : null;
   const back = `/sellers/${encodeURIComponent(externalId)}`;
-  const explain = modeExplainer();
+  const explain = modeExplainer(sellerFeeBps({ fee_bps: s.feeBps }));
 
   return (
     <>
@@ -119,12 +130,19 @@ export default async function SellerPage({
                     <Badge tone="good">Nothing to chase</Badge>
                   )}
                 </div>
-                <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-sm">
                     <p className="font-medium text-ink">Payment mode</p>
                     <p className="text-muted">{explain[s.collectionMode]} Applies to new purchases.</p>
                   </div>
                   <ModeToggle externalId={externalId} mode={s.collectionMode} back={back} />
+                </div>
+                <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm">
+                    <p className="font-medium text-ink">Ledgerly fee</p>
+                    <p className="text-muted">{feeLabel(s.feeBps)} of each sale. Applies to new purchases.</p>
+                  </div>
+                  <FeeControl externalId={externalId} feeBps={s.feeBps} back={back} />
                 </div>
               </div>
             </Card>

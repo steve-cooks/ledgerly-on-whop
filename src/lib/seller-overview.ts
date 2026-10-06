@@ -18,6 +18,7 @@ export async function getSellerOverview(externalId: string) {
     externalId: seller.external_id as string,
     country: seller.country as string,
     collectionMode: seller.collection_mode as "direct" | "platform",
+    feeBps: seller.fee_bps as number | null, // null = platform default
     accountId: seller.whop_account_id as string,
     title: account.title ?? seller.external_id,
     status: (account as { status?: string }).status ?? "active",

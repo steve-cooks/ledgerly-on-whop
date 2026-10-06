@@ -1,5 +1,5 @@
 import { env } from "@/lib/env";
-import { REMINDER_COOLDOWN_MS, lastReminder } from "@/lib/operator";
+import { MAX_FEE_BPS, REMINDER_COOLDOWN_MS, lastReminder, sellerFeeSetting } from "@/lib/operator";
 
 /** Operator-only controls shared by the console's seller list and a seller's status page. */
 
@@ -53,10 +53,21 @@ const MODES = [
   { value: "platform", label: "Platform" },
 ] as const;
 
-export function modeExplainer() {
-  const pct = env().PLATFORM_FEE_BPS / 100;
+/** "8%", "7.5%": a fee in basis points as a percentage. */
+export function feePercent(bps: number) {
+  return `${bps / 100}%`;
+}
+
+/** A seller's fee setting in words: "10%" or "8% (platform default)". */
+export function feeLabel(feeBps: number | null) {
+  return feeBps == null ? `${feePercent(env().PLATFORM_FEE_BPS)} (platform default)` : feePercent(feeBps);
+}
+
+/** What each payment mode means. Pass the seller's fee rate to name it; omit for the console legend. */
+export function modeExplainer(feeBps?: number) {
+  const fee = feeBps == null ? "its fee" : feePercent(feeBps);
   return {
-    direct: `Buyers pay the seller's Whop account; Ledgerly keeps ${pct}% as an application fee.`,
+    direct: `Buyers pay the seller's Whop account; Ledgerly keeps ${fee} as an application fee.`,
     platform: `Ledgerly collects the payment and transfers the seller's share.`,
   };
 }
@@ -94,6 +105,48 @@ export function ModeToggle({ externalId, mode, back }: { externalId: string; mod
   );
 }
 
+/** Set a seller's Ledgerly fee, or put them back on the platform default. */
+export function FeeControl({ externalId, feeBps, back }: { externalId: string; feeBps: number | null; back: string }) {
+  const action = `/api/operator/sellers/${encodeURIComponent(externalId)}/fee`;
+  return (
+    <div className="flex items-center gap-3">
+      {feeBps != null && (
+        <form action={action} method="post">
+          <input type="hidden" name="back" value={back} />
+          <input type="hidden" name="fee" value="default" />
+          <button type="submit" className="whitespace-nowrap text-xs font-medium text-accent-ink hover:underline">
+            Use default
+          </button>
+        </form>
+      )}
+      <form action={action} method="post" className="flex items-center gap-2">
+        <input type="hidden" name="back" value={back} />
+        <label className="flex items-center gap-1 text-sm text-muted">
+          <span className="sr-only">Ledgerly fee in percent</span>
+          <input
+            type="text"
+            name="fee"
+            inputMode="decimal"
+            autoComplete="off"
+            maxLength={6}
+            defaultValue={feeBps == null ? "" : String(feeBps / 100)}
+            placeholder={String(env().PLATFORM_FEE_BPS / 100)}
+            title={`0 to ${MAX_FEE_BPS / 100}%, up to 2 decimals. Leave empty for the platform default.`}
+            className="w-16 rounded-lg border border-line bg-surface px-2 py-1.5 text-right text-sm tabular text-ink outline-none placeholder:text-subtle focus:border-accent"
+          />
+          %
+        </label>
+        <button
+          type="submit"
+          className="inline-flex items-center whitespace-nowrap rounded-lg bg-ink px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90"
+        >
+          Save
+        </button>
+      </form>
+    </div>
+  );
+}
+
 const MODE_NAMES = { direct: "direct charges", platform: "platform collection" };
 
 /** The outcome of an operator action, from the redirect's query string. */
@@ -122,8 +175,25 @@ export async function OperatorNotice({ notice, seller, now }: { notice?: string;
       tone = "warn";
       text = `${who} was already on that payment mode. Nothing changed.`;
       break;
+    case "fee_changed": {
+      const fee = seller ? await sellerFeeSetting(seller) : undefined;
+      text =
+        fee === undefined
+          ? `${who}'s Ledgerly fee was updated for new purchases. Existing orders keep their original fee.`
+          : `${who}'s Ledgerly fee is now ${feeLabel(fee)} on new purchases. Existing orders keep their original fee.`;
+      break;
+    }
+    case "fee_unchanged":
+      tone = "warn";
+      text = `${who} already had that Ledgerly fee. Nothing changed.`;
+      break;
+    case "fee_invalid":
+      tone = "bad";
+      text = `Enter a Ledgerly fee between 0 and ${MAX_FEE_BPS / 100}% with up to 2 decimals (like 8 or 7.5), or leave it empty for the platform default. Nothing changed.`;
+      break;
     case "reminder_not_found":
     case "mode_not_found":
+    case "fee_not_found":
       tone = "bad";
       text = `Seller ${who} wasn't found.`;
       break;
