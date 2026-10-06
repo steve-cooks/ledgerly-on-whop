@@ -1,4 +1,4 @@
-import type { Handler, HandlerContext } from "./webhooks";
+import type { Handler, HandlerContext, Tx } from "./webhooks";
 
 type Money = { amount: string; currency: string };
 type Obj = Record<string, unknown>;
@@ -121,14 +121,25 @@ const FAILED_PAYOUT = new Set(["failed", "canceled", "denied", "reversed"]);
  * doesn't guarantee order. So: one row per payout, only move forward in event time, and post
  * to the ledger once per payout (plus once more if it fails and the money comes back).
  */
-const payoutEvent: Handler = async ({ tx, event, accountId, sellerExternalId }) => {
-  const p = event.data;
+const payoutEvent: Handler = ({ tx, event, accountId, sellerExternalId }) =>
+  applyPayout(tx, event.data, event.timestamp, accountId, sellerExternalId);
+
+/**
+ * Upsert one payout and post it to the seller's ledger once. Shared by the webhook handler and
+ * the reconciliation repair (Whop doesn't always send a webhook for the final state).
+ */
+export async function applyPayout(
+  tx: Tx,
+  p: Obj,
+  at: string,
+  accountId: string | null,
+  sellerExternalId: string | null,
+) {
   const id = str(p.id);
   if (!id) return;
   const status = str(p.status) ?? "unknown";
   const amount = Number(p.amount ?? 0);
   const currency = str(p.currency) ?? "usd";
-  const at = event.timestamp;
 
   await tx`
     insert into payouts (whop_payout_id, seller_external_id, whop_account_id, status, status_detail, amount, currency,
@@ -151,7 +162,7 @@ const payoutEvent: Handler = async ({ tx, event, accountId, sellerExternalId }) 
       values (${`payout:${id}:reversal`}, ${sellerExternalId}, 'payout_reversal', ${amount}, ${currency}, ${id}, ${at})
       on conflict (entry_key) do nothing`;
   }
-};
+}
 
 /** account.updated: mirror status (e.g. suspended) onto our seller row. */
 const accountUpdated: Handler = async ({ tx, event }) => {

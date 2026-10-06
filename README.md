@@ -155,9 +155,12 @@ Proven with real deliveries: replaying a `payout.created` with the same id retur
 ```bash
 pnpm reconcile seller_us_mira     # one seller; exit code 1 if anything is off
 pnpm reconcile --all
+pnpm reconcile --all --fix        # first pull payout state from Whop, then diff
 ```
 
 For one seller it pulls from Whop: direct-charge payments on the seller's account, platform-collected payments on Ledgerly's account tagged with that seller, transfers to the seller, payouts, and the seller's balance. It diffs each against the local tables in both directions (`missing_locally`, `missing_at_whop`, `amount_mismatch`, `state_mismatch`), compares refunded amounts, and checks the seller's ledger sum against their Whop USD balance to the cent.
+
+`--fix` exists because webhooks don't cover every transition: our real payout reached `completed` at Whop with no `payout.updated` delivered for it. The repair uses the webhook handler's own upsert, so there is one code path for payout state. Run it on a schedule.
 
 On its first run it caught two real bugs in this repo's webhook handlers (a replayed `payment.succeeded` regressing a refunded order, and a replayed `refund.created` doubling `refunded_amount`). Both are fixed and covered above. Current state: all sellers reconcile clean; Mira 8.48 = 8.48, Batida 8.45 = 8.45.
 
@@ -234,7 +237,7 @@ Each scope maps to a call this service makes. The `payout:*` block is required b
 
 | Command | What it does |
 | --- | --- |
-| `pnpm reconcile <seller\|--all>` | Diff Whop vs local; non-zero exit on any discrepancy |
+| `pnpm reconcile <seller\|--all> [--fix]` | Diff Whop vs local (non-zero exit on any discrepancy); `--fix` first syncs payout state from Whop |
 | `pnpm settle` | Pay any platform-collected order whose seller share hasn't fully gone out |
 | `pnpm tsx scripts/reprocess-events.ts <type>` | Re-run handlers over stored events (all handlers are idempotent) |
 | `pnpm onboarding-link <seller>` | Fresh onboarding link (never creates a second account) |
@@ -263,11 +266,12 @@ Found while running this in production:
 3. **`status` hides refunds and failures**: a refunded payment stays `paid` (substatus `refunded`); a declined one is `open` (substatus `failed`).
 4. **Idempotency replays failures for 24h.** Retrying with the same `Idempotency-Key` after fixing the cause returns the cached error (`Idempotent-Replayed: true`). Use a new key for a genuinely new attempt.
 5. **Duplicate-ish webhooks**: identical `payout.updated` bodies with different ids; `transfer.completed` twice. Dedupe on the object id.
-6. **Every payout starts in `in_review / risk_review`**, then `processing / awaiting_provider_acceptance` → `in_transit`. Minimum payout is **$10**.
-7. **Sales tax is added on top** when Ledgerly is the merchant of record, not on direct charges to individual sellers.
-8. **Transfers to unverified sellers succeed** and are immediately available; only withdrawal requires KYC.
-9. **Connected accounts can take payments before KYC**; only money out is gated.
-10. **Webhook payloads carry personal data** (payee legal name, buyer name, card BIN and last 4) to the platform. Treat the inbox as PII.
+6. **Webhooks can miss the final state.** A real payout reached `completed` with no `payout.updated` for it. Reconcile on a schedule.
+7. **Every payout starts in `in_review / risk_review`**, then `processing / awaiting_provider_acceptance` → `in_transit`. Minimum payout is **$10**.
+8. **Sales tax is added on top** when Ledgerly is the merchant of record, not on direct charges to individual sellers.
+9. **Transfers to unverified sellers succeed** and are immediately available; only withdrawal requires KYC.
+10. **Connected accounts can take payments before KYC**; only money out is gated.
+11. **Webhook payloads carry personal data** (payee legal name, buyer name, card BIN and last 4) to the platform. Treat the inbox as PII.
 
 ---
 

@@ -1,6 +1,7 @@
 import { sql } from "./db";
 import { env } from "./env";
 import { whop } from "./whop";
+import { applyPayout } from "./webhook-handlers";
 
 /**
  * Reconciliation: diff one seller's money at Whop against Ledgerly's local records.
@@ -141,4 +142,20 @@ export async function reconcileSeller(externalId: string) {
     ok: discrepancies.length === 0,
     discrepancies,
   };
+}
+
+/**
+ * Repair: pull payout state from Whop for a seller. Webhooks aren't guaranteed to cover every
+ * transition (we observed a payout reach "completed" with no payout.updated for it), so the
+ * reconciliation run is the backstop. Uses the webhook handler's own upsert, stamped "now".
+ */
+export async function repairPayouts(externalId: string) {
+  const [seller] = await sql()`select * from sellers where external_id = ${externalId}`;
+  if (!seller?.whop_account_id) return 0;
+  const payouts = await all(await whop().payouts.list({ account_id: seller.whop_account_id, first: 100 }));
+  const at = new Date().toISOString();
+  for (const p of payouts) {
+    await sql().begin((tx) => applyPayout(tx, p as unknown as Record<string, unknown>, at, seller.whop_account_id, externalId));
+  }
+  return payouts.length;
 }
