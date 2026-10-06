@@ -3,7 +3,8 @@ import { sql } from "./db";
 import { env } from "./env";
 import { ConflictError } from "./errors";
 import { whop } from "./whop";
-import { transferToSeller } from "./transfers";
+import { dispatchTransfer, reserveTransfer } from "./transfers";
+import { applyDeferredForPayment } from "./webhook-processor";
 
 // Whop's minimum charge and our own ceiling for a single digital good.
 const MIN_PRICE = 1;
@@ -51,31 +52,31 @@ export async function createCheckout(raw: CheckoutInput) {
   const flow = seller.collection_mode as "direct" | "platform";
   const { price, fee } = platformFee(input.price);
 
-  if (input.requestKey) {
-    const [existing] = await db`select * from orders where request_key = ${input.requestKey}`;
-    if (existing) {
-      const same =
-        existing.seller_external_id === seller.external_id &&
-        existing.title === input.title &&
-        Math.round(Number(existing.amount) * 100) === Math.round(price * 100) &&
-        existing.currency === input.currency;
-      if (!same) throw new ConflictError(`requestKey ${input.requestKey} was already used for a different checkout`);
-      if (existing.purchase_url) return orderResult(existing);
-      // A previous attempt stopped before Whop answered: finish it under the same idempotency key.
-      return finishCheckout(existing, seller, input.sku);
-    }
-  }
-
-  const [order] = await db`
-    insert into orders (seller_external_id, flow, title, amount, currency, platform_fee, request_key)
-    values (${seller.external_id}, ${flow}, ${input.title}, ${price}, ${input.currency}, ${fee}, ${input.requestKey ?? null})
+  // Get-or-create in one statement, so two concurrent requests with one key share one order.
+  const [created] = await db`
+    insert into orders (seller_external_id, flow, title, sku, amount, currency, platform_fee, request_key)
+    values (${seller.external_id}, ${flow}, ${input.title}, ${input.sku}, ${price}, ${input.currency}, ${fee}, ${input.requestKey ?? null})
+    on conflict (request_key) do nothing
     returning *`;
-  return finishCheckout(order, seller, input.sku);
+  if (created) return finishCheckout(created, seller);
+
+  // The key was used before: it must be the same purchase.
+  const [existing] = await db`select * from orders where request_key = ${input.requestKey!}`;
+  const same =
+    existing.seller_external_id === seller.external_id &&
+    existing.title === input.title &&
+    (existing.sku ?? input.sku) === input.sku &&
+    Math.round(Number(existing.amount) * 100) === Math.round(price * 100) &&
+    existing.currency === input.currency;
+  if (!same) throw new ConflictError(`requestKey ${input.requestKey} was already used for a different checkout`);
+  if (existing.purchase_url) return orderResult(existing);
+  // A previous attempt stopped before Whop answered: finish it under the same idempotency key.
+  return finishCheckout({ ...existing, sku: existing.sku ?? input.sku }, seller);
 }
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-async function finishCheckout(order: Row, seller: Row, sku: string) {
+async function finishCheckout(order: Row, seller: Row) {
   const direct = order.flow === "direct";
   const checkout = await whop().checkoutConfigurations.create(
     {
@@ -88,7 +89,7 @@ async function finishCheckout(order: Row, seller: Row, sku: string) {
         // Legacy fields the current SDK types don't include; Whop still honours them, and
         // product.external_identifier is required alongside product.
         ...({
-          product: { title: order.title, external_identifier: `ledgerly-${sku}` },
+          product: { title: order.title, external_identifier: `ledgerly-${order.sku}` },
           ...(direct ? { application_fee_amount: Number(order.platform_fee) } : {}),
         } as object),
       },
@@ -138,47 +139,72 @@ export function computeSellerShare(fees: FeeLine[], gross: number, platformFeeAm
 /**
  * Pay the seller what they're owed for a paid platform order, minus what's already confirmed
  * or in flight. Idempotent:
+ *  - refunds or disputes already waiting in the inbox for this payment are applied first;
+ *  - eligibility is checked and the transfer intent recorded in one transaction, with the
+ *    order locked, so a refund or dispute webhook can't slip in between;
  *  - the share is computed once from Whop's fee lines and stored on the order;
- *  - a transfer still in flight blocks a second one until it completes or fails;
- *  - the transfer key encodes the target total and the attempt, so a confirmed failure gets a
- *    fresh attempt while a lost response retries the same intent.
+ *  - a transfer still in flight blocks a second one;
+ *  - a transfer Whop created and then failed blocks too: Whop can retry it to success under
+ *    the same id, so a replacement could pay twice. An operator who has confirmed with Whop
+ *    that it's dead passes replaceFailed. A request Whop refused outright (no transfer was
+ *    created) is retried automatically under a new key.
  */
-export async function settlePlatformOrder(orderId: string) {
+export async function settlePlatformOrder(orderId: string, opts: { replaceFailed?: boolean } = {}) {
   const db = sql();
   const [order] = await db`select * from orders where id = ${orderId}`;
   if (!order || order.flow !== "platform") throw new Error(`order ${orderId} is not a platform order`);
   if (order.status !== "paid" || !order.whop_payment_id) return { skipped: `order is ${order.status}` };
 
+  const unapplied = await applyDeferredForPayment(order.whop_payment_id);
+  if (unapplied > 0) return { skipped: `${unapplied} webhook event(s) for this payment can't be applied yet` };
+  const [{ status }] = await db`select status from orders where id = ${order.id}`;
+  if (status !== "paid") return { skipped: `order is ${status}` };
+
   let share = order.seller_share == null ? null : Number(order.seller_share);
   if (share == null) {
     const fees = await whop().payments.listFees({ id: order.whop_payment_id });
     share = computeSellerShare(fees.data, Number(order.amount), Number(order.platform_fee)).share;
-    await db`update orders set seller_share = ${share}, updated_at = now() where id = ${order.id}`;
+    await db`update orders set seller_share = ${share}, updated_at = now() where id = ${order.id} and seller_share is null`;
+    share = Number((await db`select seller_share from orders where id = ${order.id}`)[0].seller_share);
   }
   if (share <= 0) return { skipped: "nothing left for the seller after fees", share };
-
-  const transfers = await db`
-    select status, amount from seller_transfers where order_id = ${order.id} and purpose = 'order_share'`;
-  if (transfers.some((t) => t.status === "pending")) return { skipped: "a transfer is still in flight", share };
-  const sentCents = transfers
-    .filter((t) => t.status === "completed")
-    .reduce((s, t) => s + Math.round(Number(t.amount) * 100), 0);
-  const failedAttempts = transfers.filter((t) => t.status === "failed").length;
   const shareCents = Math.round(share * 100);
-  if (sentCents > shareCents) return { overpaid: (sentCents - shareCents) / 100, share };
-  if (sentCents === shareCents) return { skipped: "seller already paid", share };
 
-  const key =
-    sentCents === 0 && failedAttempts === 0
-      ? `order:${order.id}:share`
-      : `order:${order.id}:share:to-${shareCents}${failedAttempts ? `:attempt-${failedAttempts + 1}` : ""}`;
-  const result = await transferToSeller({
-    sellerExternalId: order.seller_external_id,
-    amount: (shareCents - sentCents) / 100,
-    currency: order.currency,
-    key,
-    purpose: "order_share",
-    orderId: order.id,
+  type Step = { done: Record<string, unknown> } | { intent: Row; sentCents: number };
+  const step: Step = await db.begin(async (tx): Promise<Step> => {
+    const [locked] = await tx`select status from orders where id = ${order.id} for update`;
+    if (locked.status !== "paid") return { done: { skipped: `order is ${locked.status}`, share } };
+    const transfers = await tx`
+      select status, amount, whop_transfer_id from seller_transfers where order_id = ${order.id} and purpose = 'order_share'`;
+    if (transfers.some((t) => t.status === "pending")) return { done: { skipped: "a transfer is still in flight", share } };
+    const failedAtWhop = transfers.filter((t) => t.status === "failed" && t.whop_transfer_id);
+    if (failedAtWhop.length && !opts.replaceFailed) {
+      const ids = failedAtWhop.map((t) => t.whop_transfer_id).join(", ");
+      return { done: { blocked: `transfer ${ids} failed at Whop and may still succeed; confirm with Whop, then settle with --replace-failed`, share } };
+    }
+    const sentCents = transfers
+      .filter((t) => t.status === "completed")
+      .reduce((s, t) => s + Math.round(Number(t.amount) * 100), 0);
+    if (sentCents > shareCents) return { done: { overpaid: (sentCents - shareCents) / 100, share } };
+    if (sentCents === shareCents) return { done: { skipped: "seller already paid", share } };
+
+    const attempts = transfers.filter((t) => t.status === "failed").length;
+    const key =
+      sentCents === 0 && attempts === 0
+        ? `order:${order.id}:share`
+        : `order:${order.id}:share:to-${shareCents}${attempts ? `:attempt-${attempts + 1}` : ""}`;
+    const intent = await reserveTransfer(tx, {
+      sellerExternalId: order.seller_external_id,
+      amount: (shareCents - sentCents) / 100,
+      currency: order.currency,
+      key,
+      purpose: "order_share",
+      orderId: order.id,
+    });
+    return { intent, sentCents };
   });
-  return { ...result, share, alreadySent: sentCents / 100, sentNow: (shareCents - sentCents) / 100 };
+  if ("done" in step) return step.done;
+
+  const result = await dispatchTransfer(step.intent);
+  return { ...result, share, alreadySent: step.sentCents / 100, sentNow: (shareCents - step.sentCents) / 100 };
 }

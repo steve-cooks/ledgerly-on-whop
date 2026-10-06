@@ -1,4 +1,5 @@
 import { DeferredEvent } from "./errors";
+import { applyTransferState } from "./transfers";
 import type { Handler, Tx } from "./webhooks";
 
 /**
@@ -6,7 +7,8 @@ import type { Handler, Tx } from "./webhooks";
  *  - runs inside the event's transaction and never calls Whop;
  *  - keys its effects on the Whop object (payment, refund, transfer, payout, dispute id), so a
  *    duplicate delivery under another webhook id changes nothing;
- *  - only moves state forward, with the transition guarded in the SQL itself;
+ *  - only moves state forward, with the transition guarded in the SQL itself, or derives the
+ *    state from canonical rows (an order's refunds and disputes);
  *  - throws DeferredEvent when the event's subject isn't known yet (it is retried later).
  */
 
@@ -39,6 +41,27 @@ async function lockOrderByPaymentId(tx: Tx, paymentId: string) {
   return order;
 }
 
+// Dispute statuses that no longer hold the order. Every other status (needs_response,
+// under_review, their warning_ variants, lost) keeps it held.
+const RELEASED_DISPUTE_SQL = "('won', 'prevented', 'warning_closed')";
+
+/**
+ * Derive a paid order's status from its canonical facts instead of from the last event: any
+ * unreleased dispute holds it; otherwise booked refunds decide. Orders that were never paid
+ * are left alone.
+ */
+async function refreshOrderStatus(tx: Tx, orderId: string) {
+  await tx.unsafe(
+    `update orders o set updated_at = now(), status = case
+       when exists (select 1 from disputes d where d.order_id = o.id and d.status not in ${RELEASED_DISPUTE_SQL}) then 'disputed'
+       when o.refunded_amount >= o.amount then 'refunded'
+       when o.refunded_amount > 0 then 'partially_refunded'
+       else 'paid' end
+     where o.id = $1 and o.status not in ('pending', 'failed')`,
+    [orderId],
+  );
+}
+
 // ── Payments ────────────────────────────────────────────────────────────────────────────────
 
 const paymentSucceeded: Handler = async ({ tx, event }) => {
@@ -51,6 +74,7 @@ const paymentSucceeded: Handler = async ({ tx, event }) => {
     update orders set whop_payment_id = ${str(p.id)}, updated_at = now(),
       status = case when status in ('pending', 'failed') then 'paid' else status end
     where id = ${order.id}`;
+  await refreshOrderStatus(tx, order.id);
 
   // Direct charges land on the seller's account, so the seller's ledger mirrors their Whop
   // balance: the sale, Ledgerly's fee, and Whop's processing fees (from Whop's own
@@ -103,15 +127,10 @@ const refundEvent: Handler = async ({ tx, event }) => {
 
   // The order row is locked, so concurrent refunds on one order apply one at a time.
   await tx`
-    update orders set
-      refunded_amount = (select coalesce(sum(amount), 0) from refunds where order_id = ${order.id} and booked_at is not null),
-      status = case
-        when status = 'disputed' then status
-        when (select coalesce(sum(amount), 0) from refunds where order_id = ${order.id} and booked_at is not null) >= amount
-          then 'refunded'
-        else 'partially_refunded' end,
-      updated_at = now()
+    update orders set updated_at = now(),
+      refunded_amount = (select coalesce(sum(amount), 0) from refunds where order_id = ${order.id} and booked_at is not null)
     where id = ${order.id}`;
+  await refreshOrderStatus(tx, order.id);
 
   if (order.flow === "direct") {
     await tx`
@@ -125,8 +144,10 @@ const refundEvent: Handler = async ({ tx, event }) => {
 // ── Disputes ────────────────────────────────────────────────────────────────────────────────
 
 /**
- * dispute.created / dispute.updated. An open dispute holds the order: not deliverable, and no
- * seller share is paid out (settlement only pays 'paid' orders). A won dispute releases it.
+ * dispute.created / dispute.updated. An unreleased dispute holds the order: not deliverable,
+ * and no seller share is paid out (settlement only pays 'paid' orders). Events apply in source
+ * order, so a replayed older event can't reopen a dispute that was won. Once released, the
+ * order's status comes from its refunds again, so a refund during the dispute still counts.
  * Whop's dispute debits and fees are left to reconciliation (they show as a balance diff).
  */
 const disputeEvent: Handler = async ({ tx, event }) => {
@@ -137,72 +158,58 @@ const disputeEvent: Handler = async ({ tx, event }) => {
   const order = await lockOrderByPaymentId(tx, paymentId);
   if (!order) throw new DeferredEvent(`payment ${paymentId} not known yet`);
 
-  const status = str(d.status) ?? "open";
+  const status = str(d.status) ?? "needs_response";
+  const at = str(d.updated_at) ?? event.timestamp;
   await tx`
-    insert into disputes (whop_dispute_id, order_id, status, amount, currency)
-    values (${disputeId}, ${order.id}, ${status}, ${Number(money(d.amount)?.amount ?? d.amount ?? 0)}, ${order.currency})
-    on conflict (whop_dispute_id) do update set status = excluded.status, updated_at = now()`;
-
-  if (status === "won") {
-    await tx`
-      update orders set status = 'paid', updated_at = now()
-      where id = ${order.id} and status = 'disputed'
-        and not exists (select 1 from disputes where order_id = ${order.id} and status <> 'won')`;
-  } else {
-    await tx`
-      update orders set status = 'disputed', updated_at = now()
-      where id = ${order.id} and status in ('paid', 'partially_refunded')`;
-  }
+    insert into disputes (whop_dispute_id, order_id, status, amount, currency, source_updated_at)
+    values (${disputeId}, ${order.id}, ${status}, ${Number(money(d.amount)?.amount ?? d.amount ?? 0)}, ${order.currency}, ${at})
+    on conflict (whop_dispute_id) do update set
+      status = excluded.status, amount = excluded.amount, source_updated_at = excluded.source_updated_at, updated_at = now()
+    where disputes.source_updated_at is null or disputes.source_updated_at < excluded.source_updated_at`;
+  await refreshOrderStatus(tx, order.id);
 };
 
 // ── Transfers ───────────────────────────────────────────────────────────────────────────────
 
 /**
  * transfer.completed / transfer.failed. Whop sends one per participant (origin and
- * destination) under different webhook ids; effects key on the transfer id.
+ * destination) under different webhook ids; applyTransferState keys on the transfer id and
+ * only moves forward, so the second copy changes nothing.
  */
-const transferCompleted: Handler = async ({ tx, event }) => {
-  const t = event.data;
-  const id = str(t.id);
-  const key = str(((t.metadata ?? {}) as Obj).ledgerly_transfer_key);
-  if (!id) return;
-  const [row] = await tx`
-    update seller_transfers set status = 'completed', whop_transfer_id = ${id}, whop_status = ${str(t.status)}, updated_at = now()
-    where whop_transfer_id = ${id} or (${key}::text is not null and idempotence_key = ${key})
-    returning *`;
-  if (!row) return; // not a Ledgerly seller transfer
-  await tx`
-    insert into ledger_entries (entry_key, seller_external_id, kind, amount, currency, whop_object_id, occurred_at)
-    values (${`transfer:${id}`}, ${row.seller_external_id}, 'transfer_in', ${Number(row.amount)}, ${row.currency}, ${id},
-            ${str(t.created_at) ?? event.timestamp})
-    on conflict (entry_key) do nothing`;
-};
-
-const transferFailed: Handler = async ({ tx, event }) => {
-  const t = event.data;
-  const id = str(t.id);
-  const key = str(((t.metadata ?? {}) as Obj).ledgerly_transfer_key);
-  if (!id) return;
-  // A transfer can fail and later succeed under the same id; completed always wins.
-  await tx`
-    update seller_transfers set status = 'failed', whop_transfer_id = ${id}, whop_status = ${str(t.status)}, updated_at = now()
-    where (whop_transfer_id = ${id} or (${key}::text is not null and idempotence_key = ${key})) and status <> 'completed'`;
-};
+const transferEvent =
+  (whopStatus: "succeeded" | "failed"): Handler =>
+  async ({ tx, event }) => {
+    const t = event.data;
+    const id = str(t.id);
+    if (!id) return;
+    const key = str(((t.metadata ?? {}) as Obj).ledgerly_transfer_key);
+    await applyTransferState(tx, { id, key, whopStatus, at: str(t.created_at) ?? event.timestamp });
+  };
 
 // ── Payouts ─────────────────────────────────────────────────────────────────────────────────
 
 const payoutEvent: Handler = ({ tx, event, accountId, sellerExternalId }) =>
   applyPayout(tx, event.data, event.timestamp, accountId, sellerExternalId);
 
+// Payouts in these states took nothing out of the seller's balance in the end.
+const NOT_PAID_OUT = new Set(["denied", "canceled", "reversed"]);
+
+/** What a payout has taken from the seller's balance, given its current state (pure). */
+export function payoutDebit(p: { status: string; amount: number; fundsReturnedAt?: string | null }) {
+  if (p.fundsReturnedAt || NOT_PAID_OUT.has(p.status)) return 0;
+  return p.amount;
+}
+
 /**
  * Upsert one payout (payout.* and legacy withdrawal.*, which share the wdrl_ id) and keep the
  * seller's ledger in step. Used by the webhook and by reconciliation repair, because Whop
  * doesn't always send a webhook for the final state.
  *
- *  - The row only moves to a newer state (event time); a stale event changes nothing.
- *  - The withdrawal itself is posted once per payout.
- *  - A reversal is posted only when Whop says the money came back (status reversed, or
- *    failure.funds_returned_at set), never just because the status reads "failed".
+ *  - The row only moves to a newer state (`at`); a stale event changes nothing.
+ *  - The ledger holds what the payout has taken from the balance in its current state
+ *    (payoutDebit): the amount while it's on its way or paid, nothing once denied, canceled,
+ *    reversed or returned. A change posts the difference as an adjustment, so a changed
+ *    amount or a denied payout never leaves a stale debit.
  */
 export async function applyPayout(tx: Tx, p: Obj, at: string, accountId: string | null, sellerExternalId: string | null) {
   const id = str(p.id);
@@ -211,6 +218,7 @@ export async function applyPayout(tx: Tx, p: Obj, at: string, accountId: string 
   const amount = Number(p.amount ?? 0);
   const currency = str(p.currency) ?? "usd";
 
+  // The upsert also locks the payout row, so two events for one payout post one at a time.
   const accepted = await tx`
     insert into payouts (whop_payout_id, seller_external_id, whop_account_id, status, status_detail, amount, currency,
                          fee_amount, net_amount, last_event_at)
@@ -223,18 +231,19 @@ export async function applyPayout(tx: Tx, p: Obj, at: string, accountId: string 
     returning whop_payout_id`;
   if (accepted.length === 0 || !sellerExternalId) return;
 
+  const target = -payoutDebit({ status, amount, fundsReturnedAt: str(((p.failure ?? {}) as Obj).funds_returned_at) });
+  const [posted] = await tx`
+    select coalesce(sum(amount), 0)::numeric as total, count(*)::int as n from ledger_entries
+    where whop_object_id = ${id} and kind in ('payout', 'payout_reversal')`;
+  const deltaCents = Math.round(target * 100) - Math.round(Number(posted.total) * 100);
+  if (deltaCents === 0) return;
+  const first = posted.n === 0;
   await tx`
     insert into ledger_entries (entry_key, seller_external_id, kind, amount, currency, whop_object_id, occurred_at)
-    values (${`payout:${id}`}, ${sellerExternalId}, 'payout', ${-amount}, ${currency}, ${id}, ${str(p.created_at) ?? at})
+    values (${first ? `payout:${id}` : `payout:${id}:adj-${posted.n}`}, ${sellerExternalId},
+            ${deltaCents < 0 ? "payout" : "payout_reversal"}, ${deltaCents / 100}, ${currency}, ${id},
+            ${first ? (str(p.created_at) ?? at) : at})
     on conflict (entry_key) do nothing`;
-
-  const fundsReturned = status === "reversed" || Boolean(str(((p.failure ?? {}) as Obj).funds_returned_at));
-  if (fundsReturned) {
-    await tx`
-      insert into ledger_entries (entry_key, seller_external_id, kind, amount, currency, whop_object_id, occurred_at)
-      values (${`payout:${id}:reversal`}, ${sellerExternalId}, 'payout_reversal', ${amount}, ${currency}, ${id}, ${at})
-      on conflict (entry_key) do nothing`;
-  }
 }
 
 // ── Accounts ────────────────────────────────────────────────────────────────────────────────
@@ -253,8 +262,8 @@ export const handlers: Partial<Record<string, Handler>> = {
   "refund.updated": refundEvent,
   "dispute.created": disputeEvent,
   "dispute.updated": disputeEvent,
-  "transfer.completed": transferCompleted,
-  "transfer.failed": transferFailed,
+  "transfer.completed": transferEvent("succeeded"),
+  "transfer.failed": transferEvent("failed"),
   "payout.created": payoutEvent,
   "payout.updated": payoutEvent,
   "withdrawal.created": payoutEvent,

@@ -8,7 +8,7 @@ import type { WhopEvent } from "@/lib/webhooks";
 
 /**
  * Whop webhook consumer: verify the Standard Webhooks signature on the raw body, then hand the
- * event to processEvent (inbox + handler in one transaction, exactly-once effects).
+ * event to processEvent (inbox + handler in one transaction, so each event's effects apply once).
  */
 export async function POST(request: Request) {
   const raw = await request.text();
@@ -23,11 +23,20 @@ export async function POST(request: Request) {
   }
 
   const webhookId = headers["webhook-id"] ?? event.id;
-  const outcome = await processEvent(webhookId, event);
+  let outcome;
+  try {
+    outcome = await processEvent(webhookId, event);
+  } catch (err) {
+    // Nothing was applied (the transaction rolled back) and the error is stored on the event.
+    // A 5xx makes Whop retry; the hourly ops run retries it too.
+    console.error("webhook failed", webhookId, event.type, (err as Error).message);
+    return Response.json({ error: "processing failed", webhook_id: webhookId }, { status: 500 });
+  }
 
   // A platform-collected sale just got paid: pay the seller's share now, from Ledgerly's
   // balance. This runs after the 2xx so Whop never waits on (or retries because of) the
-  // transfer. settlePlatformOrder is idempotent, and the hourly ops job retries anything missed.
+  // transfer. settlePlatformOrder is idempotent, applies any refund or dispute already waiting
+  // for this payment first, and the hourly ops job retries anything missed.
   if (outcome === "processed" && event.type === "payment.succeeded") {
     const [order] = await sql()`
       select id from orders where whop_payment_id = ${String(event.data.id)} and flow = 'platform' and status = 'paid'`;

@@ -6,12 +6,17 @@ import { vi } from "vitest";
  * next/server's after() runs its callback inline so the post-response settlement is awaited.
  */
 export const fakeWhop: Record<string, Record<string, ReturnType<typeof vi.fn>>> = {
-  payments: { listFees: vi.fn() },
-  transfers: { create: vi.fn(), retrieve: vi.fn() },
+  payments: { listFees: vi.fn(), list: vi.fn() },
+  transfers: { create: vi.fn(), retrieve: vi.fn(), list: vi.fn() },
+  payouts: { list: vi.fn() },
   checkoutConfigurations: { create: vi.fn() },
-  accounts: { create: vi.fn() },
+  accounts: { create: vi.fn(), retrieve: vi.fn() },
   accountLinks: { create: vi.fn() },
 };
+
+/** A Whop SDK error as the SDK throws it. */
+export const whopError = (statusCode: number, message = "error") =>
+  Object.assign(new Error(message), { statusCode, body: { error: { type: "invalid_request", message } } });
 export const afterTasks: Promise<unknown>[] = [];
 
 vi.mock("@/lib/whop", () => ({ whop: () => fakeWhop }));

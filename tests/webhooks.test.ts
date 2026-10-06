@@ -54,3 +54,16 @@ describe("eventAccountId routes events across API versions", () => {
     expect(eventAccountId(base)).toBeNull();
   });
 });
+
+describe("payoutDebit: what a payout has taken from the seller's balance", async () => {
+  const { payoutDebit } = await import("@/lib/webhook-handlers");
+  it("is the amount while the payout is on its way or paid", () => {
+    for (const status of ["requested", "in_review", "processing", "completed", "failed"]) {
+      expect(payoutDebit({ status, amount: 10 })).toBe(10);
+    }
+  });
+  it("is zero once denied, canceled, reversed, or the funds came back", () => {
+    for (const status of ["denied", "canceled", "reversed"]) expect(payoutDebit({ status, amount: 10 })).toBe(0);
+    expect(payoutDebit({ status: "failed", amount: 10, fundsReturnedAt: "2026-10-06T00:00:00Z" })).toBe(0);
+  });
+});

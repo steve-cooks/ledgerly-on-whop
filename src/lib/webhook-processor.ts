@@ -48,7 +48,7 @@ export async function processEvent(webhookId: string, event: WhopEvent, opts: { 
       return handler ? "processed" : "ignored";
     });
   } catch (err) {
-    // The transaction rolled back; keep a durable, sanitized record of why, then rethrow so
+    // The transaction rolled back; keep a durable record of why (the message, truncated), then rethrow so
     // the caller answers 5xx and Whop retries.
     const message = err instanceof Error ? err.message.slice(0, 500) : "unknown error";
     await sql()`
@@ -59,15 +59,49 @@ export async function processEvent(webhookId: string, event: WhopEvent, opts: { 
   }
 }
 
-/** Re-run stored events: deferred/failed ones (default) or every event of one type. */
-export async function reprocessStored(opts: { type?: string; force?: boolean } = {}) {
+/**
+ * Re-run stored events: deferred/failed ones (default) or every event of one type. Each event
+ * is isolated: one that keeps failing is reported, and the rest still run.
+ */
+export async function reprocessStored(opts: { type?: string; force?: boolean; deadline?: number; limit?: number } = {}) {
+  const limit = opts.limit ?? 500;
   const rows = opts.type
-    ? await sql()`select webhook_id, payload from webhook_events where type = ${opts.type} order by received_at`
-    : await sql()`select webhook_id, payload from webhook_events where processed_at is null order by received_at`;
+    ? await sql()`select webhook_id, type, payload from webhook_events where type = ${opts.type} order by received_at limit ${limit}`
+    : await sql()`select webhook_id, type, payload from webhook_events where processed_at is null order by received_at limit ${limit}`;
   const outcomes: Record<string, number> = {};
+  const failed: { webhook_id: string; type: string; error: string }[] = [];
+  let attempted = 0;
   for (const r of rows) {
-    const outcome = await processEvent(r.webhook_id, r.payload as WhopEvent, { force: opts.force ?? Boolean(opts.type) });
-    outcomes[outcome] = (outcomes[outcome] ?? 0) + 1;
+    if (opts.deadline && Date.now() > opts.deadline) break;
+    attempted++;
+    try {
+      const outcome = await processEvent(r.webhook_id, r.payload as WhopEvent, { force: opts.force ?? Boolean(opts.type) });
+      outcomes[outcome] = (outcomes[outcome] ?? 0) + 1;
+    } catch (err) {
+      failed.push({ webhook_id: r.webhook_id, type: r.type, error: (err as Error).message.slice(0, 200) });
+    }
   }
-  return { events: rows.length, outcomes };
+  return { events: attempted, remaining: rows.length - attempted, outcomes, failed };
+}
+
+/**
+ * Apply stored events about one payment that couldn't be applied yet (a refund or dispute
+ * delivered before the payment). Settlement calls this first so it never pays a seller past a
+ * hold that is already sitting in the inbox. Returns how many are still unapplied.
+ */
+export async function applyDeferredForPayment(paymentId: string) {
+  const rows = await sql()`
+    select webhook_id, payload from webhook_events
+    where processed_at is null
+      and (payload->'data'->>'payment_id' = ${paymentId} or payload->'data'->'payment'->>'id' = ${paymentId})
+    order by received_at`;
+  let unapplied = 0;
+  for (const r of rows) {
+    try {
+      if ((await processEvent(r.webhook_id, r.payload as WhopEvent)) === "deferred") unapplied++;
+    } catch {
+      unapplied++;
+    }
+  }
+  return unapplied;
 }

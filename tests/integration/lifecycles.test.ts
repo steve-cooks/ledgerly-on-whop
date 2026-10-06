@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { db, deliver, paymentEvent, seed } from "./helpers";
+import { db, deliver, fakeWhop, paymentEvent, seed } from "./helpers";
 import { reprocessStored } from "@/lib/webhook-processor";
 
 const refund = (id: string, amount: number, status = "succeeded", paymentId = "pay_1") => ({
@@ -42,22 +42,44 @@ describe("refunds", () => {
 });
 
 describe("disputes", () => {
+  const dispute = (status: string, at: string, type = "dispute.updated") => ({
+    type,
+    account_id: "biz_platform",
+    timestamp: at,
+    data: { id: "dspt_1", payment: { id: "pay_1" }, status, amount: 10 },
+  });
+  const orderStatus = async (id: string) => (await (await db())`select status from orders where id = ${id}`)[0].status;
+
   it("an open dispute holds the order; winning releases it", async () => {
     const { order } = await seed({ flow: "platform", status: "paid", paymentId: "pay_1" });
-    const dispute = (status: string, type = "dispute.created") => ({
-      type,
-      account_id: "biz_platform",
-      data: { id: "dspt_1", payment: { id: "pay_1" }, status, amount: 10 },
-    });
-    await deliver(dispute("needs_response"));
-    const sql = await db();
-    expect((await sql`select status from orders where id = ${order.id}`)[0].status).toBe("disputed");
+    await deliver(dispute("needs_response", "2026-10-06T00:00:01Z", "dispute.created"));
+    expect(await orderStatus(order.id)).toBe("disputed");
 
     const { settlePlatformOrder } = await import("@/lib/checkout");
     expect(await settlePlatformOrder(order.id)).toEqual({ skipped: "order is disputed" });
 
-    await deliver(dispute("won", "dispute.updated"));
-    expect((await sql`select status from orders where id = ${order.id}`)[0].status).toBe("paid");
+    await deliver(dispute("won", "2026-10-06T00:00:02Z"));
+    expect(await orderStatus(order.id)).toBe("paid");
+  });
+
+  it("disputed, then refunded, then won: the order stays refunded and is never paid out", async () => {
+    const { order } = await seed({ flow: "platform", status: "paid", paymentId: "pay_1" });
+    await deliver(dispute("needs_response", "2026-10-06T00:00:01Z", "dispute.created"));
+    await deliver({ ...refund("rf_1", 10), account_id: "biz_platform" });
+    expect(await orderStatus(order.id)).toBe("disputed");
+    await deliver(dispute("won", "2026-10-06T00:00:03Z"));
+    expect(await orderStatus(order.id)).toBe("refunded");
+    const { settlePlatformOrder } = await import("@/lib/checkout");
+    expect(await settlePlatformOrder(order.id)).toEqual({ skipped: "order is refunded" });
+  });
+
+  it("an older dispute event replayed after a win doesn't reopen the hold", async () => {
+    const { order } = await seed({ flow: "platform", status: "paid", paymentId: "pay_1" });
+    const open = dispute("needs_response", "2026-10-06T00:00:01Z", "dispute.created");
+    await deliver(open, "msg_open");
+    await deliver(dispute("won", "2026-10-06T00:00:02Z"));
+    await deliver(open, "msg_open_replayed_under_new_id");
+    expect(await orderStatus(order.id)).toBe("paid");
   });
 });
 
@@ -78,15 +100,34 @@ describe("payouts", () => {
     expect((await sql`select count(*)::int n from ledger_entries where kind = 'payout'`)[0].n).toBe(1);
   });
 
-  it("'failed' alone credits nothing; the reversal is posted once funds are returned", async () => {
+  const payoutLedger = async () =>
+    Number((await (await db())`select coalesce(sum(amount), 0) total from ledger_entries where whop_object_id = 'wdrl_1'`)[0].total);
+
+  it("'failed' alone credits nothing; the money is back once funds are returned, posted once", async () => {
     await seed();
     await deliver(payout("payout.updated", "failed", "2026-10-06T00:00:10Z", { failure: { funds_returned_at: null } }));
-    const sql = await db();
-    expect((await sql`select count(*)::int n from ledger_entries where kind = 'payout_reversal'`)[0].n).toBe(0);
+    expect(await payoutLedger()).toBe(-10);
     const returned = payout("payout.updated", "failed", "2026-10-06T00:00:20Z", { failure: { funds_returned_at: "2026-10-06T00:00:20Z" } });
     await deliver(returned);
     await deliver({ ...returned, timestamp: "2026-10-06T00:00:30Z" });
+    expect(await payoutLedger()).toBe(0);
+    const sql = await db();
     expect((await sql`select count(*)::int n from ledger_entries where kind = 'payout_reversal'`)[0].n).toBe(1);
+  });
+
+  it("a denied payout leaves no debit", async () => {
+    await seed();
+    await deliver(payout("payout.created", "in_review", "2026-10-06T00:00:01Z"));
+    expect(await payoutLedger()).toBe(-10);
+    await deliver(payout("payout.updated", "denied", "2026-10-06T00:00:02Z", { failure: { funds_returned_at: null } }));
+    expect(await payoutLedger()).toBe(0);
+  });
+
+  it("a payout whose amount changes is booked at its new amount", async () => {
+    await seed();
+    await deliver(payout("payout.created", "in_review", "2026-10-06T00:00:01Z"));
+    await deliver(payout("payout.updated", "processing", "2026-10-06T00:00:02Z", { amount: "9.0" }));
+    expect(await payoutLedger()).toBe(-9);
   });
 
   it("legacy withdrawal.updated and payout.updated for the same payout post once", async () => {
@@ -96,6 +137,50 @@ describe("payouts", () => {
     const sql = await db();
     expect((await sql`select count(*)::int n from payouts`)[0].n).toBe(1);
     expect((await sql`select count(*)::int n from ledger_entries where kind = 'payout'`)[0].n).toBe(1);
+  });
+});
+
+describe("payout repair (reconcile --fix)", () => {
+  const remote = (status: string, extra: Record<string, unknown> = {}) => ({
+    id: "wdrl_1", status, status_detail: status, amount: "10.0", currency: "usd", created_at: "2026-10-06T00:00:00Z", ...extra,
+  });
+  const localStatus = async () => (await (await db())`select status from payouts where whop_payout_id = 'wdrl_1'`)[0]?.status;
+  const age = async () => (await db())`update payouts set updated_at = now() - interval '1 minute'`;
+
+  it("records a final state Whop never sent a webhook for, and books it once", async () => {
+    const { repairPayouts } = await import("@/lib/reconcile");
+    await seed();
+    await deliver({ type: "payout.updated", account_id: "biz_seller_us", timestamp: "2026-10-06T00:00:01Z", data: remote("processing") });
+    await age();
+    fakeWhop.payouts.list.mockResolvedValue([remote("completed")]);
+    expect(await repairPayouts("seller_us")).toBe(1);
+    expect(await localStatus()).toBe("completed");
+    await age();
+    expect(await repairPayouts("seller_us")).toBe(0);
+    expect((await (await db())`select count(*)::int n from ledger_entries where kind = 'payout'`)[0].n).toBe(1);
+  });
+
+  it("never moves a payout backwards", async () => {
+    const { repairPayouts } = await import("@/lib/reconcile");
+    await seed();
+    await deliver({ type: "payout.updated", account_id: "biz_seller_us", timestamp: "2026-10-06T00:00:01Z", data: remote("completed") });
+    await age();
+    fakeWhop.payouts.list.mockResolvedValue([remote("processing")]);
+    expect(await repairPayouts("seller_us")).toBe(0);
+    expect(await localStatus()).toBe("completed");
+  });
+
+  it("a webhook that lands while repair is reading wins over the (older) read", async () => {
+    const { repairPayouts } = await import("@/lib/reconcile");
+    await seed();
+    await deliver({ type: "payout.created", account_id: "biz_seller_us", timestamp: "2026-10-06T00:00:01Z", data: remote("in_review") });
+    await age();
+    fakeWhop.payouts.list.mockImplementation(async () => {
+      await deliver({ type: "payout.updated", account_id: "biz_seller_us", timestamp: "2026-10-06T00:00:05Z", data: remote("denied") });
+      return [remote("processing")]; // read before the webhook's change
+    });
+    expect(await repairPayouts("seller_us")).toBe(0);
+    expect(await localStatus()).toBe("denied");
   });
 });
 

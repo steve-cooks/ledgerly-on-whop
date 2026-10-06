@@ -47,20 +47,24 @@ describe("webhook consumer: exactly-once", () => {
     expect((await sql`select count(*)::int n from ledger_entries`)[0].n).toBe(3);
   });
 
-  it("a handler crash rolls back, records why, answers 500, and the retry succeeds", async () => {
-    const { account } = await seed();
-    const original = handlers["account.updated"];
-    handlers["account.updated"] = async () => {
-      throw new Error("boom");
+  it("a handler crash after partial writes rolls all of them back, records why, answers 500, and the retry succeeds", async () => {
+    const { order, account } = await seed();
+    const original = handlers["payment.succeeded"]!;
+    handlers["payment.succeeded"] = async (ctx) => {
+      await original(ctx); // writes the order status and three ledger entries...
+      throw new Error("boom"); // ...then fails
     };
-    const ev = { type: "account.updated", account_id: account, data: { id: account, status: "active" } };
-    await expect(deliver(ev, "msg_crash")).rejects.toThrow("boom");
+    const ev = paymentEvent("payment.succeeded", order, "pay_1", account);
+    expect(await deliver(ev, "msg_crash")).toMatchObject({ status: 500 });
     const sql = await db();
     const [row] = await sql`select processed_at, error, attempts from webhook_events where webhook_id = 'msg_crash'`;
     expect(row).toMatchObject({ processed_at: null, error: "boom", attempts: 1 });
+    expect((await sql`select status from orders where id = ${order.id}`)[0].status).toBe("pending");
+    expect((await sql`select count(*)::int n from ledger_entries`)[0].n).toBe(0);
 
-    handlers["account.updated"] = original;
+    handlers["payment.succeeded"] = original;
     expect((await deliver(ev, "msg_crash")).body.outcome).toBe("processed");
+    expect((await sql`select count(*)::int n from ledger_entries`)[0].n).toBe(3);
   });
 
   it("routes events by account_id, or by company_id on older payload versions", async () => {

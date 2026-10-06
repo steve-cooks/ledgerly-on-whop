@@ -217,21 +217,38 @@ export async function reconcileSeller(externalId: string, shared?: { platformPay
   };
 }
 
+// Lifecycle order of payout statuses. Repair never moves a payout backwards.
+const PAYOUT_RANK: Record<string, number> = { requested: 0, in_review: 0, processing: 1, completed: 2, failed: 2, canceled: 2, denied: 2, reversed: 3 };
+
 /**
  * Repair: pull payout state from Whop for a seller. Webhooks don't always cover every
- * transition (a real payout reached "completed" with no payout.updated for it). Uses the
- * webhook handler's own upsert, stamped with the time the read STARTED, so a webhook that
- * arrives while we paginate (newer) still wins.
+ * transition (a real payout reached "completed" with no payout.updated for it).
+ *
+ * Each payout is compared under a row lock and changed only if (a) Whop's state differs, (b)
+ * it isn't a step backwards, and (c) nothing wrote the row since this read started (a webhook
+ * that arrived meanwhile wins; the next run looks again). It then goes through the webhook
+ * handler's own applyPayout, so the ledger follows the same rules.
  */
 export async function repairPayouts(externalId: string) {
-  const [seller] = await sql()`select * from sellers where external_id = ${externalId}`;
+  const db = sql();
+  const [seller] = await db`select * from sellers where external_id = ${externalId}`;
   if (!seller?.whop_account_id) return 0;
-  const readStartedAt = new Date().toISOString();
-  const payouts = await all(await whop().payouts.list({ account_id: seller.whop_account_id, first: 100 }));
+  const [{ now: readStartedAt }] = await db`select now()`;
+  const payouts = (await all(await whop().payouts.list({ account_id: seller.whop_account_id, first: 100 }))) as unknown as Record<string, unknown>[];
+  let repaired = 0;
   for (const p of payouts) {
-    await sql().begin((tx) =>
-      applyPayout(tx, p as unknown as Record<string, unknown>, readStartedAt, seller.whop_account_id, externalId),
-    );
+    await db.begin(async (tx) => {
+      const [local] = await tx`select * from payouts where whop_payout_id = ${String(p.id)} for update`;
+      if (local) {
+        if (new Date(local.updated_at) >= new Date(readStartedAt)) return;
+        const same = local.status === p.status && local.status_detail === p.status_detail && cents(Number(local.amount)) === cents(Number(p.amount));
+        if (same || (PAYOUT_RANK[String(p.status)] ?? 0) < (PAYOUT_RANK[local.status] ?? 0)) return;
+      }
+      // Stamp it newer than anything recorded so applyPayout accepts it.
+      const at = new Date(Math.max(Date.now(), local ? new Date(local.last_event_at).getTime() + 1 : 0)).toISOString();
+      await applyPayout(tx, p, at, seller.whop_account_id, externalId);
+      repaired++;
+    });
   }
-  return payouts.length;
+  return repaired;
 }

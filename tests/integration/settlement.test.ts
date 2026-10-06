@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { db, deliver, fakeWhop, paymentEvent, seed } from "./helpers";
+import { db, deliver, fakeWhop, paymentEvent, seed, whopError } from "./helpers";
 import { settlePlatformOrder } from "@/lib/checkout";
-import { transferToSeller } from "@/lib/transfers";
+import { refreshPendingTransfers, transferToSeller } from "@/lib/transfers";
 import { ConflictError } from "@/lib/errors";
 
 // Real fee lines from the production run (platform sale with sales tax).
@@ -21,8 +21,21 @@ beforeEach(() => {
   fakeWhop.transfers.create.mockImplementation(async () => ({ id: `ctt_${++transferCalls}`, status: "succeeded" }));
 });
 
+const transferEvent = (type: "transfer.completed" | "transfer.failed", id: string, extra: Record<string, unknown> = {}) => ({
+  type,
+  account_id: "biz_platform",
+  data: { id, status: type === "transfer.completed" ? "succeeded" : "failed", ...extra },
+});
+
+async function state(orderId: string) {
+  const sql = await db();
+  const transfers = await sql`select idempotence_key, whop_transfer_id, status, last_error from seller_transfers where order_id = ${orderId} order by created_at`;
+  const [{ n }] = await sql`select count(*)::int n from ledger_entries where kind = 'transfer_in'`;
+  return { transfers, ledgerCredits: n as number };
+}
+
 describe("settlement of platform-collected orders", () => {
-  it("pays the seller's share right after payment.succeeded, once", async () => {
+  it("pays the seller's share right after payment.succeeded, once, and books it", async () => {
     const { order } = await seed({ flow: "platform" });
     await deliver(paymentEvent("payment.succeeded", order, "pay_1", "biz_platform"));
     const sql = await db();
@@ -30,6 +43,7 @@ describe("settlement of platform-collected orders", () => {
     expect(o.seller_share).toBe("8.45");
     expect(fakeWhop.transfers.create).toHaveBeenCalledTimes(1);
     expect(fakeWhop.transfers.create.mock.calls[0][0]).toMatchObject({ amount: 8.45, idempotence_key: `order:${order.id}:share` });
+    expect((await state(order.id)).ledgerCredits).toBe(1);
     expect(await settlePlatformOrder(order.id)).toMatchObject({ skipped: "seller already paid" });
   });
 
@@ -41,20 +55,79 @@ describe("settlement of platform-collected orders", () => {
     expect(fakeWhop.transfers.create).toHaveBeenCalledTimes(1);
   });
 
-  it("after a confirmed failure, the next attempt uses a new key; a failed id never counts as paid", async () => {
+  it("a transfer that failed at Whop blocks a replacement; when Whop retries it to success, the seller is paid once", async () => {
     fakeWhop.transfers.create.mockResolvedValueOnce({ id: "ctt_bad", status: "processing" });
     const { order } = await seed({ flow: "platform", status: "paid", paymentId: "pay_1" });
     await settlePlatformOrder(order.id);
-    await deliver({ type: "transfer.failed", account_id: "biz_platform", data: { id: "ctt_bad", status: "failed" } });
-    const result = await settlePlatformOrder(order.id);
-    expect(result).toMatchObject({ sentNow: 8.45 });
+    await deliver(transferEvent("transfer.failed", "ctt_bad"));
+    expect(await settlePlatformOrder(order.id)).toMatchObject({ blocked: expect.stringContaining("ctt_bad") });
+    expect(fakeWhop.transfers.create).toHaveBeenCalledTimes(1);
+
+    await deliver(transferEvent("transfer.completed", "ctt_bad"));
+    expect((await state(order.id)).transfers.map((t) => t.status)).toEqual(["completed"]);
+    expect((await state(order.id)).ledgerCredits).toBe(1);
+    expect(await settlePlatformOrder(order.id)).toMatchObject({ skipped: "seller already paid" });
+  });
+
+  it("an operator can replace a transfer Whop confirmed dead, under a new key", async () => {
+    fakeWhop.transfers.create.mockResolvedValueOnce({ id: "ctt_bad", status: "processing" });
+    const { order } = await seed({ flow: "platform", status: "paid", paymentId: "pay_1" });
+    await settlePlatformOrder(order.id);
+    await deliver(transferEvent("transfer.failed", "ctt_bad"));
+    expect(await settlePlatformOrder(order.id, { replaceFailed: true })).toMatchObject({ sentNow: 8.45 });
     expect(fakeWhop.transfers.create.mock.calls[1][0].idempotence_key).toBe(`order:${order.id}:share:to-845:attempt-2`);
+  });
+
+  it("a request Whop refused outright (no transfer created) is retried automatically under a new key", async () => {
+    fakeWhop.transfers.create.mockRejectedValueOnce(whopError(400, "not enough balance"));
+    const { order } = await seed({ flow: "platform", status: "paid", paymentId: "pay_1" });
+    expect(await settlePlatformOrder(order.id)).toMatchObject({ status: "failed", error: expect.stringContaining("not enough balance") });
+    expect((await state(order.id)).transfers[0]).toMatchObject({ status: "failed", whop_transfer_id: null });
+
+    expect(await settlePlatformOrder(order.id)).toMatchObject({ status: "completed", sentNow: 8.45 });
+    expect(fakeWhop.transfers.create.mock.calls[1][0].idempotence_key).toBe(`order:${order.id}:share:to-845:attempt-2`);
+  });
+
+  it("a lost response is recovered under the same key, and the seller is paid once", async () => {
+    fakeWhop.transfers.create.mockRejectedValueOnce(whopError(504, "gateway timeout"));
+    const { order } = await seed({ flow: "platform", status: "paid", paymentId: "pay_1" });
+    await expect(settlePlatformOrder(order.id)).rejects.toThrow("gateway timeout");
+    // The intent is recorded but unanswered: settlement must not send a second one.
+    expect(await settlePlatformOrder(order.id)).toMatchObject({ skipped: "a transfer is still in flight" });
+
+    // The ops job resends it under the same key; Whop returns the transfer it created.
+    expect(await refreshPendingTransfers({ olderThanMinutes: 0 })).toMatchObject({ checked: 1, errors: [] });
+    const keys = fakeWhop.transfers.create.mock.calls.map((c) => c[0].idempotence_key);
+    expect(keys).toEqual([`order:${order.id}:share`, `order:${order.id}:share`]);
+    expect((await state(order.id)).transfers.map((t) => t.status)).toEqual(["completed"]);
+    expect((await state(order.id)).ledgerCredits).toBe(1);
+    expect(await settlePlatformOrder(order.id)).toMatchObject({ skipped: "seller already paid" });
+  });
+
+  it("a completion webhook that lands before the create response is not undone by it", async () => {
+    const { order } = await seed({ flow: "platform", status: "paid", paymentId: "pay_1" });
+    fakeWhop.transfers.create.mockImplementationOnce(async (body: { idempotence_key: string }) => {
+      await deliver(transferEvent("transfer.completed", "ctt_fast", { metadata: { ledgerly_transfer_key: body.idempotence_key } }));
+      return { id: "ctt_fast", status: "processing" };
+    });
+    await settlePlatformOrder(order.id);
+    expect((await state(order.id)).transfers.map((t) => t.status)).toEqual(["completed"]);
+    expect((await state(order.id)).ledgerCredits).toBe(1);
+  });
+
+  it("a completion found by polling (no webhook) is booked to the ledger", async () => {
+    fakeWhop.transfers.create.mockResolvedValueOnce({ id: "ctt_quiet", status: "processing" });
+    fakeWhop.transfers.retrieve.mockResolvedValue({ id: "ctt_quiet", status: "succeeded" });
+    const { order } = await seed({ flow: "platform", status: "paid", paymentId: "pay_1" });
+    await settlePlatformOrder(order.id);
+    expect(await refreshPendingTransfers({ olderThanMinutes: 0 })).toMatchObject({ changed: [{ status: "completed" }] });
+    expect((await state(order.id)).ledgerCredits).toBe(1);
   });
 
   it("reusing a transfer key for a different amount is refused, and a retry sends the recorded intent", async () => {
     await seed({ flow: "platform" });
     const args = { sellerExternalId: "seller_br", amount: 8.23, currency: "usd", key: "k1", purpose: "order_share" as const };
-    fakeWhop.transfers.create.mockRejectedValueOnce(Object.assign(new Error("timeout"), { statusCode: 504 }));
+    fakeWhop.transfers.create.mockRejectedValueOnce(whopError(504, "timeout"));
     await expect(transferToSeller(args)).rejects.toThrow("timeout");
     await expect(transferToSeller({ ...args, amount: 8.45 })).rejects.toBeInstanceOf(ConflictError);
     await transferToSeller(args);
@@ -62,17 +135,45 @@ describe("settlement of platform-collected orders", () => {
   });
 });
 
+describe("settlement respects refunds and disputes that arrived first", () => {
+  it.each([
+    ["refund", { type: "refund.created", data: { id: "rf_1", payment: { id: "pay_1" }, amount: 10, status: "succeeded" } }, "refunded"],
+    ["dispute", { type: "dispute.created", data: { id: "dspt_1", payment: { id: "pay_1" }, status: "needs_response", amount: 10 } }, "disputed"],
+  ])("a %s delivered before the payment stops the seller's share", async (_name, early, finalStatus) => {
+    const { order } = await seed({ flow: "platform" });
+    expect((await deliver({ ...early, account_id: "biz_platform" })).body.outcome).toBe("deferred");
+    await deliver(paymentEvent("payment.succeeded", order, "pay_1", "biz_platform"));
+    const sql = await db();
+    expect((await sql`select status from orders where id = ${order.id}`)[0].status).toBe(finalStatus);
+    expect(fakeWhop.transfers.create).not.toHaveBeenCalled();
+  });
+});
+
 describe("idempotent checkout and onboarding", () => {
-  it("the same requestKey returns the same order and creates one Whop checkout", async () => {
+  const input = { sellerExternalId: "seller_us", title: "Preset Pack", sku: "preset-pack", price: 10, requestKey: "cart-42" };
+
+  it("the same requestKey returns the same order and creates one Whop checkout; a different purchase is refused", async () => {
     const { createCheckout } = await import("@/lib/checkout");
     await seed();
     fakeWhop.checkoutConfigurations.create.mockResolvedValue({ id: "ch_1", purchase_url: "https://whop.com/checkout/ch_1/" });
-    const input = { sellerExternalId: "seller_us", title: "Preset Pack", sku: "preset-pack", price: 10, requestKey: "cart-42" };
     const a = await createCheckout(input);
     const b = await createCheckout(input);
     expect(b.orderId).toBe(a.orderId);
     expect(fakeWhop.checkoutConfigurations.create).toHaveBeenCalledTimes(1);
     await expect(createCheckout({ ...input, price: 12 })).rejects.toBeInstanceOf(ConflictError);
+    await expect(createCheckout({ ...input, sku: "other-pack" })).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("concurrent requests with one requestKey share one order", async () => {
+    const { createCheckout } = await import("@/lib/checkout");
+    await seed();
+    fakeWhop.checkoutConfigurations.create.mockResolvedValue({ id: "ch_1", purchase_url: "https://whop.com/checkout/ch_1/" });
+    const results = await Promise.all(Array.from({ length: 5 }, () => createCheckout(input)));
+    expect(new Set(results.map((r) => r.orderId)).size).toBe(1);
+    const sql = await db();
+    expect((await sql`select count(*)::int n from orders where request_key = 'cart-42'`)[0].n).toBe(1);
+    // Every Whop call for it used the order's own idempotency key.
+    expect(new Set(fakeWhop.checkoutConfigurations.create.mock.calls.map((c) => c[1].idempotencyKey)).size).toBe(1);
   });
 
   it("a direct checkout carries the 8% application fee; a platform seller's never does", async () => {
@@ -94,10 +195,10 @@ describe("idempotent checkout and onboarding", () => {
     const { onboardSeller } = await import("@/lib/onboarding");
     fakeWhop.accounts.create.mockResolvedValue({ id: "biz_new" });
     fakeWhop.accountLinks.create.mockResolvedValue({ url: "https://whop.com/verify", expires_at: null });
-    const input = { externalId: "seller_x", email: "x@example.com", country: "US" };
-    expect((await onboardSeller(input)).created).toBe(true);
-    expect((await onboardSeller(input)).created).toBe(false);
+    const seller = { externalId: "seller_x", email: "x@example.com", country: "US" };
+    expect((await onboardSeller(seller)).created).toBe(true);
+    expect((await onboardSeller(seller)).created).toBe(false);
     expect(fakeWhop.accounts.create).toHaveBeenCalledTimes(1);
-    await expect(onboardSeller({ ...input, collectionMode: "platform" })).rejects.toBeInstanceOf(ConflictError);
+    await expect(onboardSeller({ ...seller, collectionMode: "platform" })).rejects.toBeInstanceOf(ConflictError);
   });
 });
