@@ -7,6 +7,15 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ledgerly_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -18,5 +27,9 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      # Webhook consumer + money handlers against a real Postgres, Whop stubbed.
+      - run: pnpm exec vitest run --config vitest.integration.mts
+        env:
+          DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/ledgerly_test
       # Needs no secrets: env is validated lazily at request time, not at build.
       - run: pnpm build

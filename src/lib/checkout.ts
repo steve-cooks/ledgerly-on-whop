@@ -1,13 +1,16 @@
 import { z } from "zod";
 import { sql } from "./db";
 import { env } from "./env";
+import { ConflictError } from "./errors";
 import { whop } from "./whop";
 import { transferToSeller } from "./transfers";
 
 // Whop's minimum charge and our own ceiling for a single digital good.
 const MIN_PRICE = 1;
 const MAX_PRICE = 10_000;
-const CURRENCIES = ["usd", "eur", "brl"] as const;
+// USD only for now: settlement, transfers and reconciliation are USD. See HANDOVER.md before
+// adding EUR/BRL (reconciliation has to become per-currency first).
+const CURRENCIES = ["usd"] as const;
 
 export const CheckoutInput = z.object({
   sellerExternalId: z.string().min(1),
@@ -16,6 +19,9 @@ export const CheckoutInput = z.object({
   sku: z.string().regex(/^[a-z0-9-]{3,80}$/),
   price: z.number().finite().min(MIN_PRICE).max(MAX_PRICE),
   currency: z.enum(CURRENCIES).default("usd"),
+  // Ledgerly's own id for this purchase attempt. Retrying with the same key returns the same
+  // order and checkout instead of creating a second one.
+  requestKey: z.string().min(1).max(200).optional(),
 });
 export type CheckoutInput = z.input<typeof CheckoutInput>;
 
@@ -30,93 +36,87 @@ export function platformFee(price: number, bps = env().PLATFORM_FEE_BPS) {
 }
 
 /**
- * Direct charge: the buyer pays the seller's connected account and Ledgerly's 8% comes off
- * as an application fee. Sellers on the 'platform' collection mode are refused here; they're
- * only ever paid through Ledgerly-collected payments + transfers.
+ * Create a checkout with Ledgerly's 8%. The flow follows the seller's policy:
+ *  - direct: the buyer pays the seller's connected account; Whop takes Ledgerly's fee as an
+ *    application fee. The seller is the merchant.
+ *  - platform: the buyer pays Ledgerly's account (Ledgerly is the merchant); the seller's share
+ *    is transferred after payment (settlePlatformOrder). Sellers on this policy can never be
+ *    given a direct checkout by this service.
  */
-export async function createDirectCheckout(raw: CheckoutInput) {
+export async function createCheckout(raw: CheckoutInput) {
   const input = CheckoutInput.parse(raw);
   const db = sql();
-
   const [seller] = await db`select * from sellers where external_id = ${input.sellerExternalId}`;
   if (!seller?.whop_account_id) throw new Error(`seller ${input.sellerExternalId} is not onboarded`);
-  if (seller.collection_mode !== "direct") {
-    throw new Error(`seller ${input.sellerExternalId} may not take payments directly`);
-  }
-
+  const flow = seller.collection_mode as "direct" | "platform";
   const { price, fee } = platformFee(input.price);
 
-  const [order] = await db`
-    insert into orders (seller_external_id, flow, title, amount, currency, platform_fee)
-    values (${seller.external_id}, 'direct', ${input.title}, ${price}, ${input.currency}, ${fee})
-    returning id`;
+  if (input.requestKey) {
+    const [existing] = await db`select * from orders where request_key = ${input.requestKey}`;
+    if (existing) {
+      const same =
+        existing.seller_external_id === seller.external_id &&
+        existing.title === input.title &&
+        Math.round(Number(existing.amount) * 100) === Math.round(price * 100) &&
+        existing.currency === input.currency;
+      if (!same) throw new ConflictError(`requestKey ${input.requestKey} was already used for a different checkout`);
+      if (existing.purchase_url) return orderResult(existing);
+      // A previous attempt stopped before Whop answered: finish it under the same idempotency key.
+      return finishCheckout(existing, seller, input.sku);
+    }
+  }
 
-  // The current API's inline plan has no application fee or inline product; Whop still accepts
-  // the legacy fields (product.external_identifier is required with them).
+  const [order] = await db`
+    insert into orders (seller_external_id, flow, title, amount, currency, platform_fee, request_key)
+    values (${seller.external_id}, ${flow}, ${input.title}, ${price}, ${input.currency}, ${fee}, ${input.requestKey ?? null})
+    returning *`;
+  return finishCheckout(order, seller, input.sku);
+}
+
+type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+async function finishCheckout(order: Row, seller: Row, sku: string) {
+  const direct = order.flow === "direct";
   const checkout = await whop().checkoutConfigurations.create(
     {
-      account_id: seller.whop_account_id,
+      account_id: direct ? seller.whop_account_id : env().WHOP_PLATFORM_ACCOUNT_ID,
       plan: {
         plan_type: "one_time",
-        initial_price: price,
-        currency: input.currency,
+        initial_price: Number(order.amount),
+        currency: order.currency,
         visibility: "hidden",
-        // Legacy compatibility fields, not in the SDK's type:
+        // Legacy fields the current SDK types don't include; Whop still honours them, and
+        // product.external_identifier is required alongside product.
         ...({
-          application_fee_amount: fee,
-          product: { title: input.title, external_identifier: `ledgerly-${input.sku}` },
+          product: { title: order.title, external_identifier: `ledgerly-${sku}` },
+          ...(direct ? { application_fee_amount: Number(order.platform_fee) } : {}),
         } as object),
       },
       redirect_url: `${env().APP_URL}/orders/${order.id}`,
-      metadata: { ledgerly_order_id: order.id, seller_external_id: seller.external_id, flow: "direct" },
+      metadata: { ledgerly_order_id: order.id, seller_external_id: seller.external_id, flow: order.flow },
     },
     { idempotencyKey: `ledgerly:checkout:${order.id}` },
   );
+  const [saved] = await sql()`
+    update orders set checkout_configuration_id = ${checkout.id}, purchase_url = ${checkout.purchase_url ?? null}, updated_at = now()
+    where id = ${order.id} returning *`;
+  return orderResult(saved);
+}
 
-  await db`update orders set checkout_configuration_id = ${checkout.id}, updated_at = now() where id = ${order.id}`;
-  return { orderId: order.id as string, checkoutId: checkout.id, purchaseUrl: checkout.purchase_url, price, fee };
+function orderResult(order: Row) {
+  return {
+    orderId: order.id as string,
+    checkoutId: order.checkout_configuration_id as string,
+    purchaseUrl: order.purchase_url as string,
+    price: Number(order.amount),
+    fee: Number(order.platform_fee),
+    flow: order.flow as "direct" | "platform",
+  };
 }
 
 /**
- * Platform-collected sale: the buyer pays Ledgerly's own account (Ledgerly is merchant of
- * record) and the seller's share is moved later with a transfer. Used for sellers who may
- * never take payments directly, and works for any seller.
- */
-export async function createPlatformCheckout(raw: CheckoutInput) {
-  const input = CheckoutInput.parse(raw);
-  const db = sql();
-  const [seller] = await db`select * from sellers where external_id = ${input.sellerExternalId}`;
-  if (!seller?.whop_account_id) throw new Error(`seller ${input.sellerExternalId} is not onboarded`);
-
-  const { price, fee } = platformFee(input.price);
-  const [order] = await db`
-    insert into orders (seller_external_id, flow, title, amount, currency, platform_fee)
-    values (${seller.external_id}, 'platform', ${input.title}, ${price}, ${input.currency}, ${fee})
-    returning id`;
-
-  const checkout = await whop().checkoutConfigurations.create(
-    {
-      account_id: env().WHOP_PLATFORM_ACCOUNT_ID,
-      plan: {
-        plan_type: "one_time",
-        initial_price: price,
-        currency: input.currency,
-        visibility: "hidden",
-        ...({ product: { title: input.title, external_identifier: `ledgerly-${input.sku}` } } as object),
-      },
-      redirect_url: `${env().APP_URL}/orders/${order.id}`,
-      metadata: { ledgerly_order_id: order.id, seller_external_id: seller.external_id, flow: "platform" },
-    },
-    { idempotencyKey: `ledgerly:checkout:${order.id}` },
-  );
-
-  await db`update orders set checkout_configuration_id = ${checkout.id}, updated_at = now() where id = ${order.id}`;
-  return { orderId: order.id as string, checkoutId: checkout.id, purchaseUrl: checkout.purchase_url, price, fee };
-}
-
-/**
- * Seller's share of a platform-collected sale, at parity with a direct charge:
- * gross - Whop's processing fees on the payment - Ledgerly's 8%.
+ * Seller's share of a platform-collected sale, under the same fee policy as a direct charge:
+ * gross − Whop's processing fees on the payment − Ledgerly's 8%.
  *
  * Excluded: sales tax (collected from the buyer on top of the price and remitted, so it was
  * never the seller's money) and the tax-service fee (a cost of Ledgerly being merchant of
@@ -135,15 +135,13 @@ export function computeSellerShare(fees: FeeLine[], gross: number, platformFeeAm
   return { share: shareCents / 100, sellerFees: sellerFeeCents / 100 };
 }
 
-export async function sellerShare(paymentId: string, gross: number, platformFeeAmount: number) {
-  const fees = await whop().payments.listFees({ id: paymentId });
-  return { ...computeSellerShare(fees.data, gross, platformFeeAmount), fees: fees.data };
-}
-
 /**
- * Pay the seller what they're owed for a paid platform order, minus what's already been sent.
- * Idempotent: the transfer key embeds the target total, so re-running at the same target never
- * pays twice, and a corrected formula produces exactly one adjustment transfer.
+ * Pay the seller what they're owed for a paid platform order, minus what's already confirmed
+ * or in flight. Idempotent:
+ *  - the share is computed once from Whop's fee lines and stored on the order;
+ *  - a transfer still in flight blocks a second one until it completes or fails;
+ *  - the transfer key encodes the target total and the attempt, so a confirmed failure gets a
+ *    fresh attempt while a lost response retries the same intent.
  */
 export async function settlePlatformOrder(orderId: string) {
   const db = sql();
@@ -151,30 +149,36 @@ export async function settlePlatformOrder(orderId: string) {
   if (!order || order.flow !== "platform") throw new Error(`order ${orderId} is not a platform order`);
   if (order.status !== "paid" || !order.whop_payment_id) return { skipped: `order is ${order.status}` };
 
-  const { share, sellerFees } = await sellerShare(order.whop_payment_id, Number(order.amount), Number(order.platform_fee));
-  const [{ sent }] = await db`
-    select coalesce(sum(amount), 0)::numeric as sent from seller_transfers
-    where order_id = ${order.id} and whop_transfer_id is not null`;
-  const dueCents = Math.round(share * 100) - Math.round(Number(sent) * 100);
-  if (dueCents <= 0) return { skipped: "seller already paid", share, sent: Number(sent) };
+  let share = order.seller_share == null ? null : Number(order.seller_share);
+  if (share == null) {
+    const fees = await whop().payments.listFees({ id: order.whop_payment_id });
+    share = computeSellerShare(fees.data, Number(order.amount), Number(order.platform_fee)).share;
+    await db`update orders set seller_share = ${share}, updated_at = now() where id = ${order.id}`;
+  }
+  if (share <= 0) return { skipped: "nothing left for the seller after fees", share };
 
-  const first = Number(sent) === 0;
+  const transfers = await db`
+    select status, amount from seller_transfers where order_id = ${order.id} and purpose = 'order_share'`;
+  if (transfers.some((t) => t.status === "pending")) return { skipped: "a transfer is still in flight", share };
+  const sentCents = transfers
+    .filter((t) => t.status === "completed")
+    .reduce((s, t) => s + Math.round(Number(t.amount) * 100), 0);
+  const failedAttempts = transfers.filter((t) => t.status === "failed").length;
+  const shareCents = Math.round(share * 100);
+  if (sentCents > shareCents) return { overpaid: (sentCents - shareCents) / 100, share };
+  if (sentCents === shareCents) return { skipped: "seller already paid", share };
+
+  const key =
+    sentCents === 0 && failedAttempts === 0
+      ? `order:${order.id}:share`
+      : `order:${order.id}:share:to-${shareCents}${failedAttempts ? `:attempt-${failedAttempts + 1}` : ""}`;
   const result = await transferToSeller({
     sellerExternalId: order.seller_external_id,
-    amount: dueCents / 100,
+    amount: (shareCents - sentCents) / 100,
     currency: order.currency,
-    key: first ? `order:${order.id}:share` : `order:${order.id}:share:to-${Math.round(share * 100)}`,
+    key,
     purpose: "order_share",
     orderId: order.id,
   });
-  return { ...result, share, sellerFees, platformFee: Number(order.platform_fee), alreadySent: Number(sent), sentNow: dueCents / 100 };
-}
-
-/** Picks the flow from the seller's policy: 'platform' sellers never get a direct checkout. */
-export async function createCheckout(raw: CheckoutInput) {
-  const input = CheckoutInput.parse(raw);
-  const [seller] = await sql()`select collection_mode from sellers where external_id = ${input.sellerExternalId}`;
-  if (!seller) throw new Error(`unknown seller ${input.sellerExternalId}`);
-  const order = seller.collection_mode === "platform" ? await createPlatformCheckout(input) : await createDirectCheckout(input);
-  return { ...order, flow: seller.collection_mode as "direct" | "platform" };
+  return { ...result, share, alreadySent: sentCents / 100, sentNow: (shareCents - sentCents) / 100 };
 }

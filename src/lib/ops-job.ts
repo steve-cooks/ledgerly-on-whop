@@ -1,52 +1,104 @@
 import { sql } from "./db";
 import { env } from "./env";
 import { settlePlatformOrder } from "./checkout";
-import { reconcileSeller, repairPayouts } from "./reconcile";
+import { fetchPlatformPayments, reconcileSeller, repairPayouts } from "./reconcile";
+import { refreshPendingTransfers } from "./transfers";
+import { reprocessStored } from "./webhook-processor";
+
+// Stop starting new work well before the route's 300s ceiling; the next run resumes.
+const TIME_BUDGET_MS = 240_000;
 
 /**
- * The scheduled operations run: sync payout state from Whop, reconcile every seller, and pay
- * any platform-collected seller share still owed. Recorded in job_runs; alerts on problems.
+ * The scheduled operations run, in order of what costs least and matters most:
+ *  1. retry webhook events that were deferred or failed;
+ *  2. ask Whop about transfers still in flight;
+ *  3. settle platform orders that still owe the seller something;
+ *  4. sync payouts and reconcile sellers, resuming after the last seller the previous run
+ *     reached, until the time budget runs out.
+ * Recorded in job_runs; alerts when anything is off, when this run ran out of time, or when
+ * the previous run never finished.
  */
 export async function runOpsJob() {
+  const started = Date.now();
+  const outOfTime = () => Date.now() - started > TIME_BUDGET_MS;
   const db = sql();
-  const [run] = await db`insert into job_runs (job) values ('ops') returning id`;
 
-  const sellers = (await db`select external_id from sellers where whop_account_id is not null order by external_id`).map(
-    (r) => r.external_id as string,
-  );
-  const reconcile: { seller: string; ok: boolean; discrepancies: number; error?: string }[] = [];
-  for (const s of sellers) {
+  const [previous] = await db`select * from job_runs where job = 'ops' order by started_at desc limit 1`;
+  const [run] = await db`insert into job_runs (job) values ('ops') returning id`;
+  const problems: string[] = [];
+  if (previous && !previous.finished_at) problems.push(`run #${previous.id} never finished`);
+
+  const events = await reprocessStored();
+  if (events.outcomes.deferred) problems.push(`${events.outcomes.deferred} webhook events still deferred`);
+
+  const transfersChecked = await refreshPendingTransfers();
+
+  // Only orders that may still owe the seller: no share computed yet, or confirmed transfers
+  // short of it.
+  const outstanding = await db`
+    select o.id from orders o
+    where o.flow = 'platform' and o.status = 'paid'
+      and (o.seller_share is null or o.seller_share > coalesce((
+        select sum(t.amount) from seller_transfers t
+        where t.order_id = o.id and t.purpose = 'order_share' and t.status = 'completed'), 0))
+    order by o.created_at`;
+  const settled: { order: string; result: unknown }[] = [];
+  for (const o of outstanding) {
+    if (outOfTime()) break;
+    try {
+      settled.push({ order: o.id, result: await settlePlatformOrder(o.id) });
+    } catch (err) {
+      problems.push(`settle ${o.id}: ${(err as Error).message}`);
+    }
+  }
+
+  // Reconcile sellers in a stable order, continuing after where the last run stopped.
+  const cursor: string = previous?.summary?.reconcile_cursor ?? "";
+  const sellers = (
+    await db`select external_id from sellers where whop_account_id is not null order by external_id`
+  ).map((r) => r.external_id as string);
+  const ordered = [...sellers.filter((s) => s > cursor), ...sellers.filter((s) => s <= cursor)];
+  const platformPayments = await fetchPlatformPayments();
+  const reconciled: { seller: string; ok: boolean; discrepancies: number }[] = [];
+  let lastSeller = cursor;
+  for (const s of ordered) {
+    if (outOfTime()) break;
     try {
       await repairPayouts(s);
-      const r = await reconcileSeller(s);
-      reconcile.push({ seller: s, ok: r.ok, discrepancies: r.discrepancies.length });
+      const r = await reconcileSeller(s, { platformPayments });
+      reconciled.push({ seller: s, ok: r.ok, discrepancies: r.discrepancies.length });
+      if (!r.ok) problems.push(`${s}: ${r.discrepancies.length} discrepancies`);
     } catch (err) {
-      reconcile.push({ seller: s, ok: false, discrepancies: 0, error: (err as Error).message });
+      problems.push(`reconcile ${s}: ${(err as Error).message}`);
     }
+    lastSeller = s;
   }
+  const complete = reconciled.length === sellers.length;
+  if (!complete) problems.push(`out of time after ${reconciled.length}/${sellers.length} sellers; next run resumes`);
 
-  const settled: { order: string; result: string }[] = [];
-  for (const o of await db`select id from orders where flow = 'platform' and status = 'paid'`) {
-    try {
-      const r = await settlePlatformOrder(o.id);
-      settled.push({ order: o.id, result: "skipped" in r ? String(r.skipped) : `sent ${r.sentNow}` });
-    } catch (err) {
-      settled.push({ order: o.id, result: `error: ${(err as Error).message}` });
-    }
-  }
-
-  const ok = reconcile.every((r) => r.ok) && settled.every((s) => !s.result.startsWith("error"));
-  const summary = { sellers: sellers.length, reconcile, settled };
-  await db`update job_runs set finished_at = now(), ok = ${ok}, summary = ${db.json(summary)} where id = ${run.id}`;
-  if (!ok) await alert(`Ledgerly ops run #${run.id} needs attention: ${JSON.stringify(summary)}`);
+  const ok = problems.length === 0;
+  const summary = {
+    events,
+    transfers_checked: transfersChecked,
+    settled,
+    sellers: sellers.length,
+    reconciled,
+    reconcile_cursor: complete ? "" : lastSeller,
+    problems,
+  };
+  await db`update job_runs set finished_at = now(), ok = ${ok}, summary = ${db.json(JSON.parse(JSON.stringify(summary)))} where id = ${run.id}`;
+  if (!ok) await alert(`Ledgerly ops run #${run.id} needs attention:\n- ${problems.join("\n- ")}`);
   return { run: run.id as number, ok, summary };
 }
 
-/** Post to a Slack-compatible incoming webhook if one is configured. */
+/** Post to a Slack-compatible incoming webhook if one is configured; a failed alert is logged. */
 async function alert(text: string) {
   const url = env().ALERT_WEBHOOK_URL;
   if (!url) return;
-  await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) }).catch(
-    () => {},
-  );
+  try {
+    const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+    if (!res.ok) console.error(`alert webhook answered ${res.status}`);
+  } catch (err) {
+    console.error("alert webhook unreachable", (err as Error).message);
+  }
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { sql } from "./db";
 import { env } from "./env";
+import { ConflictError } from "./errors";
 import { whop } from "./whop";
 
 export const SellerInput = z.object({
@@ -32,6 +33,20 @@ export async function onboardSeller(raw: SellerInput) {
     values (${input.externalId}, ${input.email}, ${input.country}, ${input.collectionMode})
     on conflict (external_id) do nothing`;
   const [seller] = await db`select * from sellers where external_id = ${input.externalId}`;
+  // A retry must describe the same seller. Changing email, country or payment policy is a
+  // deliberate operation, not something a retry should silently do (or silently ignore).
+  const conflicts = (
+    [
+      ["email", seller.email, input.email],
+      ["country", seller.country, input.country],
+      ["collectionMode", seller.collection_mode, input.collectionMode],
+    ] as const
+  ).filter(([, stored, given]) => String(stored).toLowerCase() !== String(given).toLowerCase());
+  if (conflicts.length) {
+    throw new ConflictError(
+      `seller ${input.externalId} already exists with a different ${conflicts.map(([k]) => k).join(", ")}`,
+    );
+  }
 
   let accountId: string = seller.whop_account_id;
   let created = false;

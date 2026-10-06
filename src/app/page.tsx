@@ -1,9 +1,20 @@
 import { Badge, Card, COUNTRY_NAMES, Page, SiteHeader, flag, money } from "@/components/ui";
 import { sql } from "@/lib/db";
+import { isOperator } from "@/lib/seller-session";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
+  if (!(await isOperator())) {
+    return (
+      <>
+        <SiteHeader section="Operator console" />
+        <Page>
+          <Card title="Operator sign-in required" description="This console shows Ledgerly's sellers, orders and operations. Open an operator sign-in link to continue." />
+        </Page>
+      </>
+    );
+  }
   const [sellers, orders, events, runs] = await Promise.all([
     sql()`select * from sellers order by created_at`,
     sql()`select * from orders where whop_payment_id is not null order by created_at desc limit 8`,

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Avatar, Badge, Card, COUNTRY_NAMES, Page, SiteHeader, flag } from "@/components/ui";
 import { getSellerOverview } from "@/lib/seller-overview";
+import { currentSeller, isOperator } from "@/lib/seller-session";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Seller onboarding" };
@@ -24,6 +25,27 @@ export default async function SellerPage({
 }) {
   const { externalId } = await params;
   const { onboarding } = await searchParams;
+  // Onboarding returns sellers here before they're signed in to Ledgerly: show details only to
+  // that seller or an operator, and a plain confirmation to everyone else.
+  if (!(await isOperator()) && (await currentSeller()) !== externalId) {
+    return (
+      <>
+        <SiteHeader section="Seller onboarding" />
+        <Page>
+          <div className="mx-auto max-w-lg">
+            <Card
+              title={onboarding === "refresh" ? "This link expired" : "Thanks, your details were submitted"}
+              description={
+                onboarding === "refresh"
+                  ? "Ask Ledgerly for a new onboarding link."
+                  : "Whop is reviewing them. Your verification status appears in your Ledgerly seller dashboard."
+              }
+            />
+          </div>
+        </Page>
+      </>
+    );
+  }
   const s = await getSellerOverview(externalId);
   if (!s) notFound();
   const verified = s.identity === "approved";

@@ -50,6 +50,7 @@ export function parseCsv(text: string): string[][] {
       endRow();
     } else field += c;
   }
+  if (quoted) throw new Error("CSV has an unclosed quote");
   if (field !== "" || row.length) endRow();
   return rows.filter((r) => r.some((f) => f.trim() !== ""));
 }

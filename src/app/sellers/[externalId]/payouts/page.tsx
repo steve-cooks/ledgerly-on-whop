@@ -82,11 +82,15 @@ export default async function PayoutsPage({
 
             <div className="space-y-6">
               <Card title="Payout fees" description="Charged when you withdraw.">
-                <div className="divide-y divide-line">
-                  <FeeRow label="Standard bank" sub="1–3 business days" rail={s.payoutFees.standard} />
-                  <FeeRow label="Instant bank" sub="Minutes, via RTP" rail={s.payoutFees.instant} />
-                  <FeeRow label="Crypto (USDT)" sub="Minutes" rail={s.payoutFees.crypto} />
-                </div>
+                {s.payoutFees ? (
+                  <div className="divide-y divide-line">
+                    <FeeRow label="Standard bank" sub="1–3 business days" rail={s.payoutFees.standard} />
+                    <FeeRow label="Instant bank" sub="Minutes, via RTP" rail={s.payoutFees.instant} />
+                    <FeeRow label="Crypto (USDT)" sub="Minutes" rail={s.payoutFees.crypto} />
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted">Fees are unavailable right now. The withdraw form shows the exact fee before you confirm.</p>
+                )}
                 {!s.canInstant && (
                   <p className="mt-3 text-xs leading-relaxed text-subtle">Instant bank payouts aren&apos;t enabled on your account yet.</p>
                 )}

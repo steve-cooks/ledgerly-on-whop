@@ -1,16 +1,17 @@
 // Ledgerly operations CLI.  Run `pnpm ledgerly help`.
 import "../scripts/_setup";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { sql } from "@/lib/db";
 import { whop } from "@/lib/whop";
 import { onboardSeller, freshOnboardingLink } from "@/lib/onboarding";
 import { createCheckout, settlePlatformOrder } from "@/lib/checkout";
-import { reconcileSeller, repairPayouts } from "@/lib/reconcile";
+import { fetchPlatformPayments, reconcileSeller, repairPayouts } from "@/lib/reconcile";
 import { importSellers, parseSellersCsv, toCsv } from "@/lib/import-sellers";
-import { handlers } from "@/lib/webhook-handlers";
-import { eventAccountId, type WhopEvent } from "@/lib/webhooks";
-import { signedLoginToken } from "@/lib/seller-session";
+import { reprocessStored } from "@/lib/webhook-processor";
+import { createPlatformWebhook, syncPlatformWebhook, writeWebhookSecret } from "@/lib/webhook-setup";
+import { whopErrorSummary } from "@/lib/errors";
+import { OPERATOR, signToken } from "@/lib/seller-session";
 
 const HELP = `
 ledgerly <command> [options]
@@ -22,10 +23,10 @@ Sellers
   import-sellers FILE.csv [--dry-run] [--out results.csv] [--concurrency 3]
                                   Bulk-migrate sellers (columns: external_id,email,country,title,collection_mode).
                                   Idempotent: re-run the same file to resume.
-  login-link ID                   Demo-only Seller Hub sign-in link
+  login-link ID|--operator        Demo-only sign-in link (24h): a seller's Seller Hub, or the operator console
 
 Money
-  checkout --seller ID --title T --sku SKU --price 10 [--currency usd]
+  checkout --seller ID --title T --sku SKU --price 10 [--request-key K]
                                   Checkout with Ledgerly's 8%; flow follows the seller's policy
   settle [ORDER_ID]               Pay sellers for platform-collected orders (all paid orders if omitted)
   trace PAY_ID                    A payment's fee lines and both accounts' balances
@@ -35,9 +36,11 @@ Books
                                   --fix first syncs payout state from Whop.
 
 Webhooks
-  webhook:create                  Create the platform webhook (8 events, child accounts, pinned version);
+  webhook:create                  Create the platform webhook (all sellers' events, pinned version);
                                   writes the signing secret to .env.local without printing it
-  reprocess EVENT_TYPE            Re-run handlers over stored events (all handlers are idempotent)
+  webhook:sync [HOOK_ID]          Update an existing webhook's events and version pin to match the code
+  reprocess [EVENT_TYPE]          Retry deferred/failed events; with a type, re-apply every stored event of it
+                                  (handlers are idempotent). Can't recover events never delivered: see RUNBOOK.
 `;
 
 const [command, ...rest] = process.argv.slice(2);
@@ -53,11 +56,12 @@ const { values: opt, positionals: args } = parseArgs({
     seller: { type: "string" },
     sku: { type: "string" },
     price: { type: "string" },
-    currency: { type: "string" },
+    "request-key": { type: "string" },
     out: { type: "string" },
     concurrency: { type: "string" },
     "dry-run": { type: "boolean" },
     fix: { type: "boolean" },
+    operator: { type: "boolean" },
   },
 });
 const print = (v: unknown) => console.log(JSON.stringify(v, null, 2));
@@ -103,7 +107,9 @@ const commands: Record<string, () => Promise<unknown>> = {
   },
 
   async "login-link"() {
-    console.log(`${process.env.APP_URL}/demo/login?t=${encodeURIComponent(signedLoginToken(args[0]))}`);
+    const subject = opt.operator ? OPERATOR : args[0];
+    if (!subject) throw new Error("pass a seller external id or --operator");
+    console.log(`${process.env.APP_URL}/demo/login?t=${encodeURIComponent(signToken(subject))}`);
   },
 
   async checkout() {
@@ -113,7 +119,8 @@ const commands: Record<string, () => Promise<unknown>> = {
         title: opt.title!,
         sku: opt.sku!,
         price: Number(opt.price),
-        currency: (opt.currency as "usd" | "eur" | "brl") ?? "usd",
+        currency: "usd",
+        requestKey: opt["request-key"],
       }),
     );
   },
@@ -122,7 +129,7 @@ const commands: Record<string, () => Promise<unknown>> = {
     const ids = args[0]
       ? [args[0]]
       : (await sql()`select id from orders where flow = 'platform' and status = 'paid'`).map((o) => o.id as string);
-    for (const id of ids) print({ order: id, ...(await settlePlatformOrder(id)), transfer: undefined });
+    for (const id of ids) print({ order: id, ...(await settlePlatformOrder(id)) });
   },
 
   async trace() {
@@ -145,9 +152,10 @@ const commands: Record<string, () => Promise<unknown>> = {
       ? [args[0]]
       : (await sql()`select external_id from sellers where whop_account_id is not null order by external_id`).map((r) => r.external_id as string);
     let ok = true;
+    const platformPayments = await fetchPlatformPayments();
     for (const s of sellers) {
       if (opt.fix) await repairPayouts(s);
-      const r = await reconcileSeller(s);
+      const r = await reconcileSeller(s, { platformPayments });
       ok &&= r.ok;
       print(r);
     }
@@ -155,39 +163,22 @@ const commands: Record<string, () => Promise<unknown>> = {
   },
 
   async "webhook:create"() {
-    const platform = process.env.WHOP_PLATFORM_ACCOUNT_ID!;
-    const url = `${process.env.APP_URL}/api/webhooks/whop`;
-    for await (const w of await whop().webhooks.list({ account_id: platform })) {
-      if (w.url === url) throw new Error(`a webhook for ${url} already exists: ${w.id}`);
-    }
-    const hook = await whop().webhooks.create({
-      url,
-      resource_id: platform,
-      child_resource_events: true,
-      api_version_date: "2026-09-29",
-      events: ["payment.succeeded", "payment.failed", "refund.created", "dispute.created", "transfer.completed", "payout.created", "payout.updated", "account.updated"],
-    });
-    const env = readFileSync(".env.local", "utf8").split("\n").filter((l) => !/^WHOP_WEBHOOK_(SECRET|ID)=/.test(l));
-    writeFileSync(".env.local", env.join("\n").trimEnd() + "\n");
-    appendFileSync(".env.local", `WHOP_WEBHOOK_SECRET=${hook.webhook_secret}\nWHOP_WEBHOOK_ID=${hook.id}\n`);
+    const hook = await createPlatformWebhook();
+    writeWebhookSecret(hook.id, hook.webhook_secret ?? "");
     print({ id: hook.id, url: hook.url, events: hook.events, secret: "written to .env.local; add it to your host's env too" });
   },
 
+  async "webhook:sync"() {
+    const id = args[0] ?? process.env.WHOP_WEBHOOK_ID;
+    if (!id) throw new Error("pass the webhook id (hook_...) or set WHOP_WEBHOOK_ID");
+    const hook = await syncPlatformWebhook(id);
+    print({ id: hook.id, events: hook.events, api_version_date: hook.api_version_date });
+  },
+
   async reprocess() {
-    const type = args[0];
-    const handler = handlers[type];
-    if (!handler) throw new Error(`no handler for ${type}`);
-    const rows = await sql()`select webhook_id, payload from webhook_events where type = ${type} order by received_at`;
-    for (const r of rows) {
-      await sql().begin(async (tx) => {
-        const event = r.payload as WhopEvent;
-        const accountId = eventAccountId(event);
-        const [seller] = accountId ? await tx`select external_id from sellers where whop_account_id = ${accountId}` : [];
-        await handler({ tx, event, accountId, sellerExternalId: seller?.external_id ?? null });
-        await tx`update webhook_events set processed_at = now() where webhook_id = ${r.webhook_id}`;
-      });
-    }
-    print({ reprocessed: rows.length, type });
+    // `reprocess` alone retries deferred/failed events; `reprocess TYPE` re-applies every stored
+    // event of that type (handlers are idempotent).
+    print(await reprocessStored({ type: args[0] }));
   },
 };
 
@@ -203,8 +194,8 @@ async function main() {
 
 main()
   .catch((err) => {
-    const e = err as { body?: unknown; message?: string; issues?: unknown };
-    console.error("error:", e.issues ?? e.body ?? e.message);
+    const e = err as { message?: string; issues?: unknown };
+    console.error("error:", e.issues ?? whopErrorSummary(err) ?? e.message);
     process.exitCode = 1;
   })
   .finally(() => sql().end());

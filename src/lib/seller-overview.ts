@@ -38,6 +38,7 @@ type FeeLine = { percentage?: number | null; fixed?: { amount: string } | null }
 
 /** Whop's base fee + Ledgerly's markup for the rails we show sellers. */
 function payoutFees(fees: unknown) {
+  if (!fees) return null; // lookup failed: show "unavailable", never "free"
   const f = (fees ?? {}) as { payouts?: Record<string, FeeLine>; markups?: { payouts?: Record<string, FeeLine> } };
   const amt = (l?: FeeLine) => Number(l?.fixed?.amount ?? 0);
   const pct = (l?: FeeLine) => Number(l?.percentage ?? 0);

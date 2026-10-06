@@ -11,8 +11,9 @@ const schema = z.object({
   CRON_SECRET: z.string().min(16).optional(),
   // Optional Slack-compatible incoming webhook for ops alerts.
   ALERT_WEBHOOK_URL: z.string().url().optional(),
-  // Signs the demo seller session cookie.
-  SESSION_SECRET: z.string().min(32).default("dev-only-insecure-session-secret-change-me"),
+  // Demo sign-in (stand-in for Ledgerly's auth). Off unless explicitly enabled; no default secret.
+  DEMO_LOGIN_ENABLED: z.enum(["true", "false"]).default("false"),
+  SESSION_SECRET: z.string().min(32).optional(),
   APP_URL: z.string().url().default("http://localhost:3000"),
   // Ledgerly's take rate, in basis points (800 = 8%).
   PLATFORM_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(800),

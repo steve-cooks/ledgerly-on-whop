@@ -1,0 +1,12 @@
+# Throwaway Postgres for `pnpm test:integration` (CI uses an equivalent service container).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ledgerly_test
+    ports: ["54329:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      retries: 30

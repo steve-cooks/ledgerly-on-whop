@@ -1,25 +1,35 @@
 import { sql } from "./db";
 import { env } from "./env";
-import { whop } from "./whop";
+import { transferState } from "./transfers";
 import { applyPayout } from "./webhook-handlers";
+import { whop } from "./whop";
 
 /**
  * Reconciliation: diff one seller's money at Whop against Ledgerly's local records.
  *
- * Checks, per object type, that every Whop record has a local twin with the same amount and
- * state, and every local record exists at Whop. Then checks the seller's ledger balance
- * against their Whop balance. Anything off is a discrepancy with enough detail to act on.
+ *  1. Every Whop payment, transfer and payout has a local twin with the same amount, currency
+ *     and state, and every local record exists at Whop.
+ *  2. Every paid platform-collected order has been paid out to the seller in full (confirmed
+ *     transfers = the share we owe), with no overpayment.
+ *  3. The seller's ledger balance equals their Whop balance, per currency.
  */
 
 export type Discrepancy = {
-  kind: "payment" | "transfer" | "payout" | "balance";
+  kind: "payment" | "transfer" | "payout" | "obligation" | "balance";
   id: string;
-  problem: "missing_locally" | "missing_at_whop" | "amount_mismatch" | "state_mismatch";
+  problem:
+    | "missing_locally"
+    | "missing_at_whop"
+    | "amount_mismatch"
+    | "state_mismatch"
+    | "unsettled"
+    | "underpaid"
+    | "overpaid";
   whop?: unknown;
   local?: unknown;
 };
 
-export type Keyed = { id: string; amount: number; state: string };
+export type Keyed = { id: string; amount: number; currency?: string; state: string };
 
 const cents = (n: number) => Math.round(n * 100);
 
@@ -31,10 +41,33 @@ export function diffRecords(kind: Discrepancy["kind"], whopRows: Keyed[], localR
   for (const w of whopRows) {
     const l = local.get(w.id);
     if (!l) out.push({ kind, id: w.id, problem: "missing_locally", whop: w });
-    else if (cents(w.amount) !== cents(l.amount)) out.push({ kind, id: w.id, problem: "amount_mismatch", whop: w, local: l });
+    else if (cents(w.amount) !== cents(l.amount) || (w.currency ?? l.currency) !== (l.currency ?? w.currency))
+      out.push({ kind, id: w.id, problem: "amount_mismatch", whop: w, local: l });
     else if (w.state !== l.state) out.push({ kind, id: w.id, problem: "state_mismatch", whop: w, local: l });
   }
   for (const l of localRows) if (!remote.has(l.id)) out.push({ kind, id: l.id, problem: "missing_at_whop", local: l });
+  return out;
+}
+
+/** Pure: what each paid platform order is owed vs what has been confirmed sent. */
+export function obligationDiscrepancies(
+  orders: { id: string; status: string; seller_share: number | null; age_minutes: number }[],
+  confirmedCentsByOrder: Map<string, number>,
+  graceMinutes = 60,
+): Discrepancy[] {
+  const out: Discrepancy[] = [];
+  for (const o of orders) {
+    if (o.status !== "paid") continue;
+    const sent = confirmedCentsByOrder.get(o.id) ?? 0;
+    if (o.seller_share == null) {
+      if (o.age_minutes > graceMinutes) out.push({ kind: "obligation", id: o.id, problem: "unsettled", local: { sent: sent / 100 } });
+      continue;
+    }
+    const owed = cents(o.seller_share);
+    if (sent < owed && o.age_minutes > graceMinutes)
+      out.push({ kind: "obligation", id: o.id, problem: "underpaid", local: { owed: owed / 100, sent: sent / 100 } });
+    if (sent > owed) out.push({ kind: "obligation", id: o.id, problem: "overpaid", local: { owed: owed / 100, sent: sent / 100 } });
+  }
   return out;
 }
 
@@ -53,44 +86,51 @@ async function all<T>(page: AsyncIterable<T>) {
   return rows;
 }
 
-type WhopPayment = {
+export type WhopPayment = {
   id: string;
   status?: string | null;
   substatus?: string | null;
+  currency?: string | null;
   total?: { amount: string } | null;
   subtotal?: { amount: string } | null;
   refunded_amount?: { amount: string } | null;
   metadata?: Record<string, unknown> | null;
 };
 
-export async function reconcileSeller(externalId: string) {
+/** Ledgerly's own payments (platform-collected sales). Fetch once per run and share it. */
+export async function fetchPlatformPayments() {
+  return (await all(await whop().payments.list({ account_id: env().WHOP_PLATFORM_ACCOUNT_ID, first: 100 }))) as WhopPayment[];
+}
+
+export async function reconcileSeller(externalId: string, shared?: { platformPayments?: WhopPayment[] }) {
   const db = sql();
   const [seller] = await db`select * from sellers where external_id = ${externalId}`;
   if (!seller?.whop_account_id) throw new Error(`seller ${externalId} is not onboarded`);
   const sellerAccount: string = seller.whop_account_id;
-  const platform = env().WHOP_PLATFORM_ACCOUNT_ID;
 
   // ── Whop side ────────────────────────────────────────────────────────────────────────────
   // Direct charges live on the seller's account; platform-collected sales live on Ledgerly's,
   // tagged with the seller in metadata.
   const [sellerPayments, platformPayments, transfers, payouts, account] = await Promise.all([
     all(await whop().payments.list({ account_id: sellerAccount, first: 100 })),
-    all(await whop().payments.list({ account_id: platform, first: 100 })),
+    shared?.platformPayments ?? fetchPlatformPayments(),
     all(await whop().transfers.list({ destination_id: sellerAccount, first: 100 })),
     all(await whop().payouts.list({ account_id: sellerAccount, first: 100 })),
     whop().accounts.retrieve({ id: sellerAccount }),
   ]);
   const payments = [
     ...(sellerPayments as WhopPayment[]),
-    ...(platformPayments as WhopPayment[]).filter((p) => p.metadata?.seller_external_id === externalId),
+    ...platformPayments.filter((p) => p.metadata?.seller_external_id === externalId),
   ].filter((p) => paymentState(p) !== "failed" && p.status !== "open" && p.status !== "draft");
 
   // ── Local side ───────────────────────────────────────────────────────────────────────────
-  const [orders, localTransfers, localPayouts, [{ balance }]] = await Promise.all([
-    db`select * from orders where seller_external_id = ${externalId} and whop_payment_id is not null and status <> 'failed'`,
+  const [orders, localTransfers, localPayouts, balances] = await Promise.all([
+    db`select *, extract(epoch from now() - updated_at) / 60 as age_minutes from orders
+       where seller_external_id = ${externalId} and whop_payment_id is not null and status <> 'failed'`,
     db`select * from seller_transfers where seller_external_id = ${externalId} and whop_transfer_id is not null`,
     db`select * from payouts where seller_external_id = ${externalId}`,
-    db`select coalesce(sum(amount), 0)::numeric as balance from ledger_entries where seller_external_id = ${externalId}`,
+    db`select currency, coalesce(sum(amount), 0)::numeric as balance from ledger_entries
+       where seller_external_id = ${externalId} group by currency`,
   ]);
 
   // Compare the item price (subtotal): tax added on top at checkout isn't part of the order.
@@ -100,62 +140,98 @@ export async function reconcileSeller(externalId: string) {
       payments.map((p) => ({
         id: p.id,
         amount: Number(p.subtotal?.amount ?? p.total?.amount ?? 0),
+        currency: (p.currency ?? "usd").toLowerCase(),
         state: `${paymentState(p)} / refunded ${Number(p.refunded_amount?.amount ?? 0).toFixed(2)}`,
       })),
       orders.map((o) => ({
         id: o.whop_payment_id,
         amount: Number(o.amount),
-        state: `${o.status} / refunded ${Number(o.refunded_amount).toFixed(2)}`,
+        currency: o.currency,
+        // A disputed order is still 'paid' at Whop; its dispute shows up in the balance check.
+        state: `${o.status === "disputed" ? "paid" : o.status} / refunded ${Number(o.refunded_amount).toFixed(2)}`,
       })),
     ),
     ...diffRecords(
       "transfer",
-      (transfers as { id: string; amount: number; status?: string }[])
-        .filter((t) => t.status === "succeeded")
-        .map((t) => ({ id: t.id, amount: Number(t.amount), state: "completed" })),
-      localTransfers.map((t) => ({ id: t.whop_transfer_id, amount: Number(t.amount), state: t.status })),
+      (transfers as { id: string; amount: number; currency?: string; status?: string }[]).map((t) => ({
+        id: t.id,
+        amount: Number(t.amount),
+        currency: (t.currency ?? "usd").toLowerCase(),
+        state: transferState(t.status),
+      })),
+      localTransfers.map((t) => ({ id: t.whop_transfer_id, amount: Number(t.amount), currency: t.currency, state: t.status })),
     ),
     ...diffRecords(
       "payout",
-      (payouts as { id: string; amount: string | number; status?: string }[]).map((p) => ({
+      (payouts as { id: string; amount: string | number; currency?: string; status?: string }[]).map((p) => ({
         id: p.id,
         amount: Number(p.amount),
+        currency: (p.currency ?? "usd").toLowerCase(),
         state: p.status ?? "unknown",
       })),
-      localPayouts.map((p) => ({ id: p.whop_payout_id, amount: Number(p.amount), state: p.status })),
+      localPayouts.map((p) => ({ id: p.whop_payout_id, amount: Number(p.amount), currency: p.currency, state: p.status })),
     ),
   ];
 
-  // Seller balance: Whop's total (available + pending + reserve) vs the sum of our ledger.
-  const whopBalance = (account.balances ?? [])
-    .filter((b: { symbol?: string }) => (b.symbol ?? "").toUpperCase() === "USD")
-    .reduce((s: number, b: { balance?: string | number }) => s + Number(b.balance ?? 0), 0);
-  if (cents(whopBalance) !== cents(Number(balance))) {
-    discrepancies.push({ kind: "balance", id: sellerAccount, problem: "amount_mismatch", whop: whopBalance, local: Number(balance) });
+  // What platform-collected orders owe the seller vs confirmed order-share transfers.
+  const confirmed = new Map<string, number>();
+  for (const t of localTransfers) {
+    if (t.purpose === "order_share" && t.status === "completed" && t.order_id) {
+      confirmed.set(t.order_id, (confirmed.get(t.order_id) ?? 0) + cents(Number(t.amount)));
+    }
+  }
+  discrepancies.push(
+    ...obligationDiscrepancies(
+      orders
+        .filter((o) => o.flow === "platform")
+        .map((o) => ({
+          id: o.id,
+          status: o.status,
+          seller_share: o.seller_share == null ? null : Number(o.seller_share),
+          age_minutes: Number(o.age_minutes),
+        })),
+      confirmed,
+    ),
+  );
+
+  // Seller balance, per currency: Whop's total (available + pending + reserve) vs our ledger.
+  const whopBalance = new Map<string, number>();
+  for (const b of (account.balances ?? []) as { symbol?: string; balance?: string | number }[]) {
+    const c = (b.symbol ?? "").toLowerCase();
+    whopBalance.set(c, (whopBalance.get(c) ?? 0) + Number(b.balance ?? 0));
+  }
+  const localBalance = new Map(balances.map((b) => [b.currency as string, Number(b.balance)]));
+  for (const c of new Set([...whopBalance.keys(), ...localBalance.keys()])) {
+    const w = whopBalance.get(c) ?? 0;
+    const l = localBalance.get(c) ?? 0;
+    if (cents(w) !== cents(l)) discrepancies.push({ kind: "balance", id: `${sellerAccount}:${c}`, problem: "amount_mismatch", whop: w, local: l });
   }
 
   return {
     seller: externalId,
     account: sellerAccount,
     checked: { payments: payments.length, transfers: transfers.length, payouts: payouts.length },
-    balance: { whop: whopBalance, local: Number(balance) },
+    balance: Object.fromEntries([...whopBalance].map(([c, w]) => [c, { whop: w, local: localBalance.get(c) ?? 0 }])),
     ok: discrepancies.length === 0,
     discrepancies,
   };
 }
 
 /**
- * Repair: pull payout state from Whop for a seller. Webhooks aren't guaranteed to cover every
- * transition (we observed a payout reach "completed" with no payout.updated for it), so the
- * reconciliation run is the backstop. Uses the webhook handler's own upsert, stamped "now".
+ * Repair: pull payout state from Whop for a seller. Webhooks don't always cover every
+ * transition (a real payout reached "completed" with no payout.updated for it). Uses the
+ * webhook handler's own upsert, stamped with the time the read STARTED, so a webhook that
+ * arrives while we paginate (newer) still wins.
  */
 export async function repairPayouts(externalId: string) {
   const [seller] = await sql()`select * from sellers where external_id = ${externalId}`;
   if (!seller?.whop_account_id) return 0;
+  const readStartedAt = new Date().toISOString();
   const payouts = await all(await whop().payouts.list({ account_id: seller.whop_account_id, first: 100 }));
-  const at = new Date().toISOString();
   for (const p of payouts) {
-    await sql().begin((tx) => applyPayout(tx, p as unknown as Record<string, unknown>, at, seller.whop_account_id, externalId));
+    await sql().begin((tx) =>
+      applyPayout(tx, p as unknown as Record<string, unknown>, readStartedAt, seller.whop_account_id, externalId),
+    );
   }
   return payouts.length;
 }

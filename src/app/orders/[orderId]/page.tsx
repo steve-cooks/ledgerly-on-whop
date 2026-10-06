@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Order" };
 
 const STATUS: Record<string, { label: string; tone: "good" | "warn" | "bad" | "neutral"; note: string }> = {
   pending: { label: "Processing", tone: "warn", note: "We're confirming your payment. This page updates automatically." },
-  paid: { label: "Paid", tone: "good", note: "Your download is ready. A receipt is on its way to your inbox." },
+  paid: { label: "Paid", tone: "good", note: "Payment confirmed. Ledgerly will deliver your files shortly." },
   failed: { label: "Payment failed", tone: "bad", note: "Your card wasn't charged. Please try again." },
   refunded: { label: "Refunded", tone: "neutral", note: "This order was refunded in full." },
   partially_refunded: { label: "Partially refunded", tone: "neutral", note: "Part of this order was refunded." },
@@ -35,7 +35,7 @@ export default async function OrderPage({ params }: { params: Promise<{ orderId:
               {order.status === "paid" ? "✓" : order.status === "failed" ? "!" : "↺"}
             </div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              {order.status === "paid" ? "Thanks for your order" : st.label}
+              {order.status === "paid" ? "Payment confirmed" : st.label}
             </h1>
             <p className="mt-2 text-sm text-muted">{st.note}</p>
           </div>
