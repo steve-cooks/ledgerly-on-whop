@@ -88,7 +88,7 @@ export async function shopProducts(productId?: string): Promise<ShopProduct[]> {
   const db = sql();
   const rows = await db`
     select p.id, p.title, p.description, p.price, p.seller_external_id,
-           coalesce(su.store_name, p.seller_external_id) as store_name
+           coalesce(su.store_name, s.title, p.seller_external_id) as store_name
     from products p
     join sellers s on s.external_id = p.seller_external_id
     left join seller_users su on su.seller_external_id = p.seller_external_id
