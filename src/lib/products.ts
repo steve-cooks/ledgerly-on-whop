@@ -116,7 +116,7 @@ export async function shopProduct(productId: string) {
  * key comes from the product page, so a double-clicked "Buy" opens one order, not two.
  * Returns where to send the buyer.
  */
-export async function buyProduct(productId: string, nonce: string) {
+export async function buyProduct(productId: string, nonce: string, buyerId: string) {
   const product = await shopProduct(productId);
   if (!product) return null;
   const [{ sku }] = await sql()`select sku from products where id = ${product.id}`;
@@ -126,7 +126,9 @@ export async function buyProduct(productId: string, nonce: string) {
     sku,
     price: product.price,
     productId: product.id,
-    requestKey: /^[A-Za-z0-9-]{8,64}$/.test(nonce) ? `shop:${product.id}:${nonce}` : undefined,
+    // Bound to this browser's buyer id, so nobody else's browser can reuse the page's nonce
+    // to reach this buyer's order.
+    requestKey: /^[A-Za-z0-9-]{8,64}$/.test(nonce) && /^[A-Za-z0-9_-]{16,64}$/.test(buyerId) ? `shop:${product.id}:${buyerId}:${nonce}` : undefined,
   });
   const [{ status }] = await sql()`select status from orders where id = ${order.orderId}`;
   // The same key after the buyer already paid: show the order instead of a second checkout.

@@ -13,10 +13,11 @@ vi.mock("next/headers", () => ({
 const supa = vi.hoisted(() => ({
   createUser: vi.fn(),
   generateLink: vi.fn(),
+  updateUserById: vi.fn(),
   verifyOtp: vi.fn(),
 }));
 vi.mock("@/lib/supabase/server", () => ({
-  supabaseAdmin: () => ({ auth: { admin: { createUser: supa.createUser, generateLink: supa.generateLink } } }),
+  supabaseAdmin: () => ({ auth: { admin: { createUser: supa.createUser, generateLink: supa.generateLink, updateUserById: supa.updateUserById } } }),
   supabaseServer: async () => ({ auth: { verifyOtp: supa.verifyOtp } }),
 }));
 
@@ -33,7 +34,8 @@ beforeEach(() => {
   });
   vi.stubGlobal("fetch", oauth);
   supa.createUser.mockResolvedValue({ data: {}, error: null });
-  supa.generateLink.mockResolvedValue({ data: { properties: { hashed_token: "th_1" } }, error: null });
+  supa.generateLink.mockResolvedValue({ data: { properties: { hashed_token: "th_1" }, user: { id: "u_1", email_confirmed_at: "2026-10-01T00:00:00Z" } }, error: null });
+  supa.updateUserById.mockResolvedValue({ data: {}, error: null });
   supa.verifyOtp.mockResolvedValue({ data: { user: { id: "11111111-1111-1111-1111-111111111111" } }, error: null });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -59,10 +61,19 @@ describe("sellers: Continue with Whop", () => {
     expect(token).toMatchObject({ client_id: "app_seller", client_secret: "seller_secret" });
   });
 
-  it("an existing user with that email signs in to the same account", async () => {
+  it("an existing confirmed user with that email signs in to the same account", async () => {
     supa.createUser.mockResolvedValue({ data: {}, error: new Error("A user with this email address has already been registered") });
     expect(await signIn()).toBe("/sell/onboard");
     expect(supa.verifyOtp).toHaveBeenCalled();
+    expect(supa.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it("an existing account that was never confirmed has its password wiped before it's handed over", async () => {
+    supa.createUser.mockResolvedValue({ data: {}, error: new Error("A user with this email address has already been registered") });
+    supa.generateLink.mockResolvedValue({ data: { properties: { hashed_token: "th_1" }, user: { id: "u_squat", email_confirmed_at: null } }, error: null });
+    expect(await signIn()).toBe("/sell/onboard");
+    expect(supa.updateUserById).toHaveBeenCalledWith("u_squat", { password: expect.any(String), email_confirm: true });
+    expect(supa.updateUserById.mock.invocationCallOrder[0]).toBeLessThan(supa.verifyOtp.mock.invocationCallOrder[0]);
   });
 
   it("refuses a Whop account without a verified email", async () => {

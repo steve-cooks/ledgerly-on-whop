@@ -43,12 +43,36 @@ async function product(opts: { active?: boolean; price?: number } = {}) {
 const redirectTarget = (p: Promise<unknown>) => p.then(() => null, (e: { digest?: string }) => e.digest?.split(";")[2] ?? Promise.reject(e));
 
 describe("buying a product", () => {
-  const buy = async (productId: string, nonce = randomUUID()) => {
+  const buy = async (productId: string, nonce = randomUUID(), origin?: string) => {
     const { POST } = await import("@/app/shop/[productId]/buy/route");
     const body = new FormData();
     body.set("nonce", nonce);
-    return POST(new Request(`https://ledgerly.test/shop/${productId}/buy`, { method: "POST", body }), { params: Promise.resolve({ productId }) });
+    const headers = origin ? { origin } : undefined;
+    return POST(new Request(`https://ledgerly.test/shop/${productId}/buy`, { method: "POST", body, headers }), { params: Promise.resolve({ productId }) });
   };
+
+  it("another browser can't reach a buyer's order by reusing their page's nonce", async () => {
+    await seed();
+    await (await db())`delete from orders`;
+    const id = await product();
+    fakeWhop.checkoutConfigurations.create
+      .mockResolvedValueOnce({ id: "ch_victim", purchase_url: "https://whop.com/checkout/ch_victim" })
+      .mockResolvedValueOnce({ id: "ch_other", purchase_url: "https://whop.com/checkout/ch_other" });
+    const nonce = randomUUID();
+    await buy(id, nonce); // the buyer's browser
+    await (await db())`update orders set status = 'paid'`;
+    jar.clear(); // a different browser, same nonce
+    const res = await buy(id, nonce);
+    expect(res.headers.get("location")).toBe("https://whop.com/checkout/ch_other");
+    expect(await (await db())`select id from orders`).toHaveLength(2);
+  });
+
+  it("refuses a Buy submitted from another site", async () => {
+    await seed();
+    const res = await buy(await product(), randomUUID(), "https://evil.test");
+    expect(res.status).toBe(403);
+    expect(fakeWhop.checkoutConfigurations.create).not.toHaveBeenCalled();
+  });
 
   it("creates an order linked to the product and sends the buyer to Whop's checkout", async () => {
     await seed(); // seller_us, onboarded, direct
