@@ -1,21 +1,21 @@
 {
-  "id": "msg_9mTVGzUoTztykx4qNSE4TaOk",
+  "id": "msg_YE2rRO21PPmn7PUguNa3x2nZ",
   "data": {
-    "id": "biz_9ejVCcyqXnAYeV",
+    "id": "biz_imW7SL959LNYDA",
     "eula": null,
     "cards": null,
-    "email": "owner@example.com",
+    "email": "seller+ledgerly-nested@example.com",
     "owner": {
-      "id": "user_1oDPcy6nYdRLz",
-      "name": "<redacted>",
+      "id": "user_5hHpxKIh6uj4p",
+      "name": null,
       "username": "<redacted>",
       "profile_picture": "<redacted>"
     },
-    "route": "biz_9ejVCcyqXnAYeV",
-    "title": "Mira Presets",
-    "status": "active",
+    "route": "biz_imW7SL959LNYDA",
+    "title": "Nested Seller",
+    "status": "suspended",
     "wallet": {
-      "id": "cwal_gRJ2sPGgKh5A8",
+      "id": "cwal_BjhtgOzdPfMBw",
       "address": "<redacted>",
       "network": "ethereum"
     },
@@ -24,46 +24,41 @@
     "website": null,
     "balances": [],
     "logo_url": null,
-    "metadata": {
-      "external_id": "seller_us_mira",
-      "collection_mode": "direct"
-    },
+    "metadata": {},
     "tax_type": "exclusive",
     "financing": null,
     "total_usd": null,
-    "created_at": "2026-10-06T01:02:27+02:00",
-    "volume_usd": 20,
+    "created_at": "2026-10-06T01:06:02+02:00",
+    "volume_usd": 0,
     "description": null,
     "require_2fa": false,
     "capabilities": {
       "run_ads": "active",
-      "transfer": "active",
-      "bank_deposit": "active",
+      "transfer": "inactive",
+      "bank_deposit": "inactive",
       "card_deposit": "active",
       "card_issuing": "inactive",
-      "crypto_payout": "active",
+      "crypto_payout": "inactive",
       "crypto_deposit": "active",
       "instant_payout": "inactive",
-      "standard_payout": "active",
-      "accept_bank_payments": "active",
+      "standard_payout": "inactive",
+      "accept_bank_payments": "inactive",
       "accept_bnpl_payments": "inactive",
-      "accept_card_payments": "active"
+      "accept_card_payments": "inactive"
     },
     "social_links": [],
     "verification": {
       "business": null,
-      "individual": {
-        "status": "approved"
-      }
+      "individual": null
     },
     "ads_spend_usd": null,
     "business_name": null,
-    "business_type": "software",
-    "industry_type": "photo_editing",
+    "business_type": null,
+    "industry_type": null,
     "return_policy": null,
-    "status_reason": null,
+    "status_reason": "Suspended - Platform request",
     "collect_vat_id": false,
-    "industry_group": "creative_software",
+    "industry_group": null,
     "invoice_prefix": null,
     "parent_account": {
       "id": "biz_3iFse5N7RWo86f",
@@ -77,10 +72,93 @@
     "shipping_policy": null,
     "target_audience": null,
     "tax_identifiers": [],
-    "tax_remitted_by": "none",
+    "tax_remitted_by": null,
     "banner_image_url": null,
     "business_address": null,
     "home_preferences": [],
+    "payment_controls": {
+      "reserve": {
+        "percentage": null,
+        "hold_period_days": 90
+      },
+      "enforce_3ds": false,
+      "financing_disabled": false,
+      "withdrawal_schedule": {
+        "day": null,
+        "frequency": "manual",
+        "next_payout_date": null
+      },
+      "dispute_alert_fee_usd": 29,
+      "undated_pending_reason": "withdrawals_disabled",
+      "dispute_alert_auto_refund": {
+        "locked": false,
+        "threshold_usd": 500
+      },
+      "pending_balance_delay_days": 0,
+      "restricted_payment_methods": [],
+      "resolution_center_auto_refund": {
+        "locked": false,
+        "card_threshold_usd": null,
+        "paypal_threshold_usd": null,
+        "financing_threshold_usd": null
+      },
+      "pending_auto_topup_fee_percentage": 2,
+      "high_risk_processing_fee_percentage": 0
+    },
+    "platform_credits": [],
+    "product_tax_code": null,
+    "required_actions": [],
+    "show_reviews_dtc": true,
+    "stablecoin_rails": false,
+    "terms_of_service": null,
+    "total_earned_usd": 0,
+    "company_formation": {
+      "status": "draft"
+    },
+    "show_joined_whops": true,
+    "store_page_config": {
+      "layout": null,
+      "accent_color": null,
+      "profile_variant": null,
+      "whop_affiliate_link": false
+    },
+    "cancellation_policy": null,
+    "opengraph_image_url": null,
+    "recommended_actions": null,
+    "show_user_directory": true,
+    "send_customer_emails": false,
+    "economic_intelligence": false,
+    "orchestration_enabled": true,
+    "dispute_fighter_enabled": false,
+    "opengraph_image_variant": null,
+    "other_business_description": null,
+    "other_industry_description": null,
+    "tax_collection_enabled_states": [],
+    "use_logo_as_opengraph_image_fallback": false,
+    "can_transfer_pending_balance_to_children": false
+  },
+  "type": "account.updated",
+  "timestamp": "2026-10-06T01:44:42.055Z",
+  "account_id": "biz_imW7SL959LNYDA",
+  "api_version": "v1",
+  "api_version_date": "2026-09-29",
+  "previous_attributes": {
+    "status": "active",
+    "capabilities": {
+      "run_ads": "active",
+      "transfer": "inactive",
+      "bank_deposit": "inactive",
+      "card_deposit": "active",
+      "card_issuing": "inactive",
+      "crypto_payout": "inactive",
+      "crypto_deposit": "active",
+      "instant_payout": "inactive",
+      "standard_payout": "inactive",
+      "accept_bank_payments": "active",
+      "accept_bnpl_payments": "inactive",
+      "accept_card_payments": "active"
+    },
+    "status_reason": null,
     "payment_controls": {
       "reserve": {
         "percentage": null,
@@ -110,44 +188,17 @@
       "pending_auto_topup_fee_percentage": 2,
       "high_risk_processing_fee_percentage": 0
     },
-    "platform_credits": [],
-    "product_tax_code": null,
-    "required_actions": [],
-    "show_reviews_dtc": true,
-    "stablecoin_rails": true,
-    "terms_of_service": null,
-    "total_earned_usd": 10,
-    "company_formation": {
-      "status": "draft"
-    },
-    "show_joined_whops": true,
-    "store_page_config": {
-      "layout": null,
-      "accent_color": null,
-      "profile_variant": null,
-      "whop_affiliate_link": false
-    },
-    "cancellation_policy": null,
-    "opengraph_image_url": null,
-    "recommended_actions": null,
-    "show_user_directory": true,
-    "send_customer_emails": false,
-    "economic_intelligence": false,
-    "orchestration_enabled": true,
-    "dispute_fighter_enabled": false,
-    "opengraph_image_variant": null,
-    "other_business_description": null,
-    "other_industry_description": null,
-    "tax_collection_enabled_states": [],
-    "use_logo_as_opengraph_image_fallback": false,
-    "can_transfer_pending_balance_to_children": false
-  },
-  "type": "account.updated",
-  "timestamp": "2026-10-06T01:38:10.480Z",
-  "account_id": "biz_9ejVCcyqXnAYeV",
-  "api_version": "v1",
-  "api_version_date": "2026-09-29",
-  "previous_attributes": {
-    "industry_group": "creative_and_media_software"
+    "required_actions": [
+      {
+        "cta": "https://whop.com/dashboard/biz_imW7SL959LNYDA/balance/?verify=true",
+        "title": "Complete verification to unlock cards and payouts",
+        "action": "verify_identity",
+        "status": "required",
+        "icon_url": null,
+        "cta_label": "Verify now",
+        "description": "Verify your identity to unlock a Whop card and start spending immediately.",
+        "blocked_capabilities": []
+      }
+    ]
   }
 }

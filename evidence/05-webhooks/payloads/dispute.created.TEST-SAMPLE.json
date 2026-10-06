@@ -1,0 +1,75 @@
+{
+  "id": "msg_M7AJPfGsaq1oktf3lf8LP6Cv",
+  "data": {
+    "id": "dspt_xxxxxxxxxxxxxx",
+    "fee": null,
+    "buyer": {
+      "name": "<redacted>",
+      "email": "owner@example.com",
+      "user_id": "user_xxxxxxxxxxxxxx",
+      "username": "<redacted>",
+      "member_id": null
+    },
+    "amount": 150,
+    "reason": "fraudulent",
+    "status": "needs_response",
+    "inquiry": false,
+    "payment": {
+      "id": "pay_xxxxxxxxxxxxxx",
+      "amount": 0,
+      "currency": "usd",
+      "card_brand": null,
+      "card_last4": null,
+      "created_at": "2026-01-01T12:00:00.000Z",
+      "payment_processor": null,
+      "payment_instrument": null,
+      "payment_method_type": null
+    },
+    "plan_id": "plan_xxxxxxxxxxxxxx",
+    "currency": "usd",
+    "evidence": {
+      "notes": null,
+      "documents": [],
+      "service_date": null,
+      "customer_name": null,
+      "billing_address": null,
+      "access_activity_log": null,
+      "product_description": null,
+      "customer_email_address": null,
+      "refund_policy_attachment": null,
+      "refund_policy_disclosure": null,
+      "uncategorized_attachment": null,
+      "refund_refusal_explanation": null,
+      "cancellation_policy_attachment": null,
+      "cancellation_policy_disclosure": null,
+      "customer_communication_attachment": null
+    },
+    "account_id": "biz_xxxxxxxxxxxxxx",
+    "created_at": "2026-01-01T12:00:00.000Z",
+    "line_items": [
+      {
+        "id": null,
+        "sku": null,
+        "label": "Ceramic Coating Package",
+        "plan_id": "plan_xxxxxxxxxxxxxx",
+        "quantity": 1,
+        "subtotal": null,
+        "plan_title": null,
+        "product_id": "prod_xxxxxxxxxxxxxx",
+        "product_title": "Ceramic Coating Package"
+      }
+    ],
+    "product_id": "prod_xxxxxxxxxxxxxx",
+    "updated_at": "2026-01-01T12:00:00.000Z",
+    "reason_code": null,
+    "evidence_due_at": "2026-01-01T12:00:00.000Z",
+    "issuer_comments": [],
+    "evidence_editable": true,
+    "evidence_submitted_at": null,
+    "evidence_locked_reason": null
+  },
+  "type": "dispute.created",
+  "timestamp": "2026-10-06T01:44:39.427Z",
+  "api_version": "v1",
+  "api_version_date": "2026-09-29"
+}
