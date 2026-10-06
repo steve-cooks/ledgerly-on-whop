@@ -12,7 +12,7 @@ A small service that runs **Ledgerly's payments on Whop**. It replaces the old s
 | Create checkouts with Ledgerly's 8% fee | Catalog, storefront, search, carts |
 | Pay sellers: directly at checkout, or by transfer for sellers who may not take payments | Delivering the digital files |
 | Seller payouts page: balance, withdraw, activity | Buyer accounts and support |
-| Record every money event exactly once in its own ledger | |
+| Keep its own ledger of payments, refunds, transfers and payouts, each applied once however often Whop sends it ([what's guaranteed](README.md#what-is-and-isnt-guaranteed)) | |
 | Check Ledgerly's books against Whop every hour | |
 
 It is a Next.js app (API + a few pages) with a Postgres database. It runs today at <https://ledgerly-whop.vercel.app> on Vercel and Supabase.
@@ -55,7 +55,8 @@ pnpm ledgerly import-sellers sellers.csv                # create accounts + onbo
 
 - CSV columns: `external_id, email, country, title, collection_mode` ([example](examples/migration/sellers.sample.csv)). Country is a 2-letter code. `collection_mode` is `direct` (default) or `platform`.
 - Every row is validated before anything is created. Bad rows are listed with the reason.
-- It is **safe to re-run**. An interrupted import resumes by running the same file again: sellers that already have a Whop account are reused (with a fresh onboarding link), never duplicated. A row whose email, country or policy conflicts with what's already stored is reported as an error, not silently changed.
+- It is **safe to re-run**. An interrupted import resumes by running the same file again: sellers that already have a Whop account are reused (with a fresh onboarding link), never duplicated. A row whose email, country or policy conflicts with what's already stored is reported as an error, not silently changed. The title is only used when the account is created; change it in Whop afterwards.
+- One gap: if the service crashes after Whop creates an account but before saving its id, a re-run **within 24 hours** gets the same account back (Whop's idempotency key). After 24 hours it would create a second one. For a seller whose earlier attempt errored, check Whop first (Sub accounts, search the email; each account carries `metadata.external_id`).
 - Invalid rows are reported and skipped; valid rows in the same file are still imported. Use `--dry-run` first to see both.
 - It writes `sellers.results.csv` with each seller's Whop account id and onboarding link. Email the links to sellers. Links expire after about an hour, so for sellers who open them later, generate a fresh one with `pnpm ledgerly onboarding-link <id>` or by calling `POST /api/sellers` again.
 - Suggested rollout: 50 sellers, check the results and the next hourly ops run, then batches of 500.
@@ -73,7 +74,7 @@ pnpm ledgerly import-sellers sellers.csv                # create accounts + onbo
 
 ## Decisions for Ledgerly before full launch
 
-These came out of running real money through Whop. Items 1–6 need a business decision; 7 and the code items in the checklist below are engineering work.
+These came out of running real money through Whop. Most need a business decision; 9 and the code items in the checklist below are engineering work.
 
 1. **What sellers receive (USD vs USDT).** In the test run Ledgerly's balance was topped up with a USDT crypto deposit (it lands in seconds; a bank deposit takes 1–3 business days). Transfers requested in `usd` were then paid out of that USDT, so sellers received USDT, while the API still reported `usd`. Decide which asset sellers should be paid in, fund Ledgerly's balance accordingly (bank deposit for USD), and confirm with Whop how transfers choose between USD and USDT when both are available.
 2. **Refunds before settlement.** A seller can't refund a sale until its funds settle (about 1–2 days), and Whop's fees aren't returned. Today Ledgerly fronts the refund with a transfer. Decide whether to keep that, and how to recover advances from sellers' later sales (not automated yet).
@@ -81,8 +82,10 @@ These came out of running real money through Whop. Items 1–6 need a business d
 4. **Sales tax.** When Ledgerly is the merchant (platform-collected sales), Whop adds and remits sales tax. On direct charges to individual sellers it didn't. Confirm the tax position with Whop and your advisor.
 5. **8% as a checkout fee vs an account markup.** Today each checkout sets `application_fee_amount`. Whop can instead apply an 8% payment markup to every connected account automatically, which removes a per-checkout step.
 6. **Instant payouts.** Ledgerly charges +$0.50 on instant withdrawals, but Whop hasn't enabled instant payouts on the test seller yet. Ask Whop how sellers qualify.
-7. **Currencies.** Checkouts are USD-only today. Supporting EUR and BRL sellers means settling and reconciling per currency (the reconciliation already compares balances per currency) and running a small real sale in each before onboarding those sellers.
-8. **Sellers who must never take payments directly.** This service never gives them a direct checkout, but their Whop accounts can still accept card payments (Whop's API has no way to turn that off). If that must be guaranteed platform-wide, ask Whop to restrict those accounts.
+7. **When platform-collected sellers get paid.** Today their share is transferred into their Whop balance seconds after the buyer pays, and they withdraw to their bank whenever they choose (the hourly job only catches up on anything missed). That's fast for sellers, but a refund or chargeback after that is Ledgerly's to recover. The alternative is escrow: hold the share until the refund window passes (say 7–14 days). That's a small change: stop settling right after payment and have the hourly job settle only orders older than the window.
+8. **Automatic payouts to sellers' banks.** Sellers withdraw themselves today. Whop has scheduled automatic payouts (payouts report `source: "automatic"`), which could recreate Ledgerly's old monthly payouts without sellers lifting a finger. Not tested here; ask Whop how to enable it for connected accounts.
+9. **Currencies.** Checkouts are USD-only today. Supporting EUR and BRL sellers means settling and reconciling per currency (the reconciliation already compares balances per currency) and running a small real sale in each before onboarding those sellers.
+10. **Sellers who must never take payments directly.** This service never gives them a direct checkout, but their Whop accounts can still accept card payments (Whop's API has no way to turn that off). If that must be guaranteed platform-wide, ask Whop to restrict those accounts.
 
 ## Go-live checklist
 
@@ -91,5 +94,6 @@ These came out of running real money through Whop. Items 1–6 need a business d
 - [ ] Define retention for the webhook inbox (`webhook_events`): it stores raw payloads, which include buyers' names and card digits.
 - [ ] Set `ALERT_WEBHOOK_URL` and confirm an alert arrives (break a test seller's ledger, run `/api/cron/ops`).
 - [ ] Rotate every secret created during the build (see the runbook) and keep keys out of chat and tickets.
-- [ ] Decide items 1–4 above.
+- [ ] Decide items 1–4 and 7 above.
+- [ ] Before volume grows, give the hourly reconciliation a time window: it reads Ledgerly's full payment history on every run.
 - [ ] Migrate sellers in batches, watching the hourly ops run.

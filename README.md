@@ -6,7 +6,7 @@ Ledgerly is a marketplace for creators' digital goods: 3,000 sellers in 40 count
 - buyers pay through Whop, and Ledgerly keeps **8% of every sale**
 - sellers see their balance and **withdraw on their own**, inside Ledgerly's site
 - some sellers are never allowed to take payments directly; Ledgerly collects and pays them by **transfer** (enforced by this service; see [the boundary](#decisions-and-trade-offs))
-- every webhook's money effects apply **exactly once** across retries, replays, duplicates and restarts (covered by integration tests on a real Postgres)
+- each webhook's effects are applied **once per Whop object** (payment, refund, dispute, transfer, payout) across retries, replays, near-duplicates and restarts, covered by integration tests on a real Postgres. [What that does and doesn't cover](#what-is-and-isnt-guaranteed)
 - an hourly **reconciliation** checks Ledgerly's books against Whop's and catches anything Whop never sent
 
 It runs in production at <https://ledgerly-whop.vercel.app> (Next.js on Vercel, Postgres on Supabase). Everything here was exercised with real money; the proof run and raw API responses are in [`examples/assessment/`](examples/assessment) with personal data removed.
@@ -21,7 +21,7 @@ It runs in production at <https://ledgerly-whop.vercel.app> (Next.js on Vercel, 
 
 1. [Architecture](#architecture)
 2. [Money flows](#money-flows)
-3. [Exactly-once webhooks](#exactly-once-webhooks)
+3. [Webhooks: each effect once](#webhooks-each-effect-once)
 4. [Reconciliation](#reconciliation)
 5. [Seller payouts UI](#seller-payouts-ui)
 6. [HTTP API](#http-api)
@@ -139,24 +139,42 @@ sequenceDiagram
   L->>L: transfer completed,<br/>ledger transfer_in +8.45 (once)
 ```
 
-`settlePlatformOrder` computes the share once (from Whop's fee lines) and stores it on the order, then pays **what is owed minus what is confirmed**. A transfer still in flight blocks another; a transfer id alone never counts as paid. Retries reuse the same key and send exactly the recorded intent (a different amount under the same key is refused); only after Whop confirms a failure does the next attempt get a new key (`…:attempt-2`). Overpayments are reported, never "fixed" by sending less. The hourly ops job and `pnpm ledgerly settle` retry anything outstanding.
+`settlePlatformOrder` pays **what is owed minus what is confirmed**:
+
+- It first applies any refund or dispute already waiting in the inbox for this payment (one that arrived before the payment), then checks the order and records the transfer intent in **one transaction with the order locked**, so a refund or dispute webhook can't slip in between.
+- The share is computed once from Whop's fee lines and stored on the order.
+- A transfer still in flight blocks another; a transfer id alone never counts as paid.
+- Retries reuse the same key and send exactly the recorded intent (a different amount under the same key is refused). A request that got **no answer** stays pending and the hourly job resends it under the **same** key, which returns the original transfer if Whop created it.
+- A request Whop **refused** (4xx, so no transfer exists) is retried under a new key (`…:attempt-2`).
+- A transfer Whop **created and then failed** is not replaced automatically: Whop documents that a failed transfer can be retried to success under the same id, so a replacement could pay twice. The order shows as blocked; once Whop confirms the old one is final, an operator runs `pnpm ledgerly settle ORDER --replace-failed`.
+- Overpayments are reported, never "fixed" by sending less.
+
+Every transfer state change (create response, polling, `transfer.completed`/`failed`) goes through one forward-only routine, `applyTransferState`, which also books the seller's ledger once.
 
 ---
 
-## Exactly-once webhooks
+## Webhooks: each effect once
 
 Whop delivers **at least once**, retries for ~3 days, doesn't guarantee order, and in practice sends near-duplicates: three identical `payout.updated` bodies with different ids for one payout, and two `transfer.completed` per transfer (one per participant). It can also skip a transition entirely (a real payout reached `completed` with no webhook). The consumer handles each case:
 
 1. **Verify** the Standard Webhooks signature on the raw body (`unwrapWebhook` from `@whop/sdk/helpers`, `ws_…` secret used verbatim, 5-minute timestamp tolerance). Forged or stale requests get `401` and store nothing.
-2. **Inbox + one transaction** ([`webhook-processor.ts`](src/lib/webhook-processor.ts)): insert the event keyed on its webhook id, lock the row, run the handler, mark it processed, all in one transaction. Concurrent deliveries of one message serialize on the lock; a processed message answers `duplicate`. If the handler throws, everything rolls back, the inbox keeps a sanitized error and attempt count, and the endpoint answers `500` so Whop retries.
+2. **Inbox + one transaction** ([`webhook-processor.ts`](src/lib/webhook-processor.ts)): insert the event keyed on its webhook id, lock the row, run the handler, mark it processed, all in one transaction. Concurrent deliveries of one message serialize on the lock; a processed message answers `duplicate`. If the handler throws, everything rolls back, the inbox keeps the error message (truncated) and attempt count, and the endpoint answers `500` so Whop retries.
 3. **Business keys, not message ids**: every money effect is keyed on the Whop object (`payment:<id>:sale`, `refund:<id>`, `transfer:<id>`, `payout:<id>`). A near-duplicate under a new webhook id, or the second participant's `transfer.completed`, changes nothing.
-4. **Guarded, forward-only transitions**, with the guard inside the SQL `UPDATE`: orders go `pending|failed → paid` and never back from `refunded`/`disputed`; `payment.failed` only touches a still-`pending` order; payouts only move to a newer event time. Refunds and disputes lock the order row, so concurrent events on one order apply one at a time.
-5. **Lifecycles, not single events**: refunds are booked only once Whop says `succeeded` (a pending refund waits for `refund.updated`); an open dispute holds the order (not deliverable, not settled) until it's won; a transfer counts only when completed (`transfer.failed` frees a retry); a payout reversal is posted only when Whop says the money came back.
+4. **Forward-only or derived state**, with the guard inside the SQL: orders go `pending|failed → paid` and `payment.failed` only touches a still-`pending` order. After that, a paid order's status is **derived** from its canonical rows: any unreleased dispute → `disputed`, else booked refunds → `refunded`/`partially_refunded`, else `paid`. So a dispute won after a full refund leaves the order `refunded`. Dispute events apply in source order (an old event replayed later can't reopen a won dispute); transfers only move `pending → failed → completed`; payouts only move to a newer event time. Refunds and disputes lock the order row, so concurrent events on one order apply one at a time.
+5. **Lifecycles, not single events**: refunds are booked only once Whop says `succeeded` (a pending refund waits for `refund.updated`); an open or lost dispute holds the order (not deliverable, not settled) until it's won; a transfer counts only when completed; a payout's ledger debit follows its current state (the amount while it's on its way or paid, nothing once denied, canceled, reversed or returned), posting adjustments rather than rewriting history.
 6. **Deferred events**: an event about something not known yet (a refund that beats its payment) is parked, not dropped. The hourly job retries it, and closes it as unmatched after 72 hours.
 7. **Version-tolerant routing**: `account_id` (payloads pinned to `2026-08-14`+), else `company_id` (older/unpinned), else the object's own account. Legacy `withdrawal.*` uses the payout handler (same `wdrl_` id).
 8. Work that calls Whop (the seller transfer) runs **after** the 2xx via `after()`, so Whop never waits on it.
 
-**Tested**: [`tests/integration/`](tests/integration) runs the real route against Postgres with Whop stubbed: concurrent duplicate deliveries, near-duplicates, handler crash and retry, out-of-order payment and payout events, refund-before-payment, concurrent refunds, pending refunds, disputes, payout reversals, double `transfer.completed`, transfer failure and retry, conflicting key reuse, checkout and onboarding retries. **Proven live**: replaying real deliveries returns `duplicate` and changes nothing (`pnpm ledgerly smoke`, [evidence](examples/assessment/evidence/05-webhooks/test-replay-suspend.json)).
+**Tested**: [`tests/integration/`](tests/integration) runs the real route against Postgres with Whop stubbed (42 tests): concurrent duplicate deliveries, near-duplicates, a handler crash after partial writes (all rolled back, `500`, retry succeeds), out-of-order payment and payout events, refund-before-payment, concurrent and pending refunds, disputed → refunded → won, replayed old dispute events, refund or dispute arriving before payment (seller not paid), payout reversals, denials and amount changes, payout repair (missing final state, no backwards moves, a webhook landing mid-read), double `transfer.completed`, a failed transfer later succeeding (paid once), refused vs unanswered transfer requests, a completion webhook beating the create response, completion found only by polling, a poison event in the hourly job, conflicting key reuse, concurrent checkout retries and onboarding retries. These are route + database tests, not deployed end-to-end tests. **Proven live**: replaying real deliveries returns `duplicate` and changes nothing (`pnpm ledgerly smoke`, [evidence](examples/assessment/evidence/05-webhooks/test-replay-suspend.json)).
+
+### What is and isn't guaranteed
+
+- **Guaranteed** (tested): a delivered event's effects commit together or not at all, and apply once per Whop object however often it's delivered; order, refund, dispute, transfer and payout states never move backwards; a seller's share is never sent twice by this service.
+- **Not by webhooks alone**: an event Whop never delivers (or a transition it skips) is only caught by the hourly reconciliation and payout repair, or by Whop's replay.
+- **Not posted to the ledger**: Whop's dispute debits and dispute fees. They show up as a balance difference in reconciliation.
+- **Operator decisions**: `--replace-failed` sends a new transfer after a failed one; if Whop later completes the old one anyway, reconciliation reports the order `overpaid`.
+- **Timing risk**: platform-collected sellers are paid as soon as the payment succeeds, so a refund or dispute after that is Ledgerly's to recover (see [Decisions](#decisions-and-trade-offs)).
 
 ---
 
@@ -174,11 +192,11 @@ For one seller it pulls from Whop: direct-charge payments on the seller's accoun
 - **obligations**: every paid platform-collected order has been paid its share in confirmed transfers (`unsettled`, `underpaid`, `overpaid`);
 - **balance**: the seller's ledger equals their Whop balance to the cent, per currency.
 
-`--fix` first syncs payout state from Whop, because webhooks don't cover every transition (our real payout reached `completed` with no `payout.updated` for it). It uses the webhook handler's own upsert, stamped with the time the read started, so a newer webhook still wins.
+`--fix` first syncs payout state from Whop, because webhooks don't cover every transition (our real payout reached `completed` with no `payout.updated` for it). Each payout is compared under a row lock and changed only if Whop's state differs, it isn't a step backwards, and nothing wrote the row since the read started (a webhook that lands meanwhile wins; the next run looks again). It then goes through the webhook handler's own `applyPayout`, so the ledger follows the same rules.
 
-The hourly job (`/api/cron/ops`, Vercel Cron) retries deferred events, asks Whop about transfers still in flight, settles orders that still owe a seller something, then syncs payouts and reconciles sellers. It fetches Ledgerly's payments once per run, stops starting new work at 4 minutes and resumes from the next seller on the following run, records each run in `job_runs` (latest shown on the operator console), and posts to `ALERT_WEBHOOK_URL` on any problem, including a previous run that never finished.
+The hourly job (`/api/cron/ops`, Vercel Cron; `pnpm ledgerly ops` runs it by hand) retries deferred and failed events, settles transfers webhooks haven't (polls Whop, resends unanswered requests under the same key, and watches failed ones for two weeks), settles orders that still owe a seller something, then syncs payouts and reconciles sellers. Every stage and every item in it is isolated: one event that always fails, or Whop being down for one stage, is reported and the rest still runs. It fetches Ledgerly's payments once per run, stops starting new work at 4 minutes and resumes on the following run, always records the run in `job_runs` (latest shown on the operator console), and posts to `ALERT_WEBHOOK_URL` on any problem, including a previous run that never finished. At 3,000 sellers the full-history payment fetch should become a time window; see HANDOVER.
 
-On its first runs it caught two real bugs in this repo's handlers (a replayed `payment.succeeded` regressing a refunded order; a replayed `refund.created` doubling `refunded_amount`) and the missing payout webhook. All three sellers reconcile clean: Mira 8.48 = 8.48, Batida 8.45 = 8.45.
+On its first runs it caught two real bugs in this repo's handlers (a replayed `payment.succeeded` regressing a refunded order; a replayed `refund.created` doubling `refunded_amount`) and the missing payout webhook. Snapshot at the last production check (2026-10-05): all three sellers reconcile clean, Mira 8.48 = 8.48, Batida 16.90 = 16.90 (two sales), Vorlage 0.
 
 ---
 
@@ -194,7 +212,7 @@ On its first runs it caught two real bugs in this repo's handlers (a replayed `p
 - Ledgerly charges **+$0.50 on instant (RTP) withdrawals** for every seller (`PATCH /accounts/{platform}/fees` → `child_markups.payouts.rtp`). The fee panel reads each rail's Whop fee and Ledgerly markup live.
 - **Hosted alternative**: "Open hosted payouts portal" creates a `payouts_portal` account link and redirects.
 
-The demo sign-in stands in for Ledgerly's own auth: `pnpm ledgerly login-link <seller>` (or `--operator`) prints a link that expires in 24 hours and opens an 8-hour session. It is off unless `DEMO_LOGIN_ENABLED=true` and a `SESSION_SECRET` is set. Seller status pages show details only to that seller or an operator; the operator console requires an operator session.
+The demo sign-in stands in for Ledgerly's own auth: `pnpm ledgerly login-link <seller>` (or `--operator`) prints a link that expires in 24 hours and opens an 8-hour session. Tokens are signed with their purpose: a link can only start a session and a session cookie can't be exchanged for a new one, so every session ends 8 hours after sign-in. It is off unless `DEMO_LOGIN_ENABLED=true` and a `SESSION_SECRET` is set. Seller status pages show details only to that seller or an operator; the operator console requires an operator session.
 
 ---
 
@@ -205,7 +223,7 @@ All admin endpoints take `Authorization: Bearer $ADMIN_API_TOKEN`. Errors: `400`
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | `POST` | `/api/sellers` | `{ externalId, email, country, title?, collectionMode? }` | `{ accountId, created, onboardingUrl, expiresAt }`. `201` when created, `200` when it already existed. Safe to retry; a retry with a different email, country or policy is `409`. |
-| `POST` | `/api/checkouts` | `{ sellerExternalId, title, sku, price, requestKey? }` | `{ orderId, checkoutId, purchaseUrl, price, fee, flow }`. Flow follows the seller's policy. USD only. Pass `requestKey` (e.g. Ledgerly's cart id) to make retries return the same checkout; reusing it for a different checkout is `409`. |
+| `POST` | `/api/checkouts` | `{ sellerExternalId, title, sku, price, requestKey? }` | `{ orderId, checkoutId, purchaseUrl, price, fee, flow }`. Flow follows the seller's policy. USD only. Pass `requestKey` (e.g. Ledgerly's cart id) to make retries, including concurrent ones, return the same checkout; reusing it for a different seller, title, SKU or price is `409`. |
 | `GET` | `/api/orders/:orderId` | | Order status; deliver the file when `deliverable` is `true`. |
 | `GET` | `/api/reconcile/:externalId` | | Reconciliation report; `409` if anything is off. |
 | `GET` | `/api/cron/ops` | (Vercel Cron, `Bearer $CRON_SECRET`) | The hourly operations run |
@@ -265,7 +283,9 @@ The key needs these permissions. Most are used on every request; a few are only 
 | `pnpm ledgerly onboarding-link ID` | Fresh onboarding link (never creates a second account) |
 | `pnpm ledgerly checkout --seller ID --title … --sku … --price 10` | Create a checkout from the terminal |
 | `pnpm ledgerly reconcile [ID] [--fix]` | Diff Whop vs local; non-zero exit on any discrepancy |
-| `pnpm ledgerly settle [ORDER_ID]` | Pay what's still owed on platform-collected orders |
+| `pnpm ledgerly settle [ORDER_ID]` | Pay what's still owed on platform-collected orders. `--replace-failed` (one order) only after Whop confirms a failed transfer is final |
+| `pnpm ledgerly transfers:refresh` | Ask Whop about pending transfers; resend unanswered requests under the same key |
+| `pnpm ledgerly ops` | Run the hourly ops job now and print its summary |
 | `pnpm ledgerly reprocess [EVENT_TYPE]` | Retry deferred/failed events; with a type, re-apply every stored event of it (idempotent). It can't recover an event Whop never delivered: use reconcile and Whop's replay for that |
 | `pnpm ledgerly trace PAY_ID` | A payment's fee lines and both balances |
 | `pnpm ledgerly webhook:create` / `webhook:sync` | Register the platform webhook (secret to `.env.local`) / update its events and pin |
@@ -284,7 +304,7 @@ Incident playbooks are in [RUNBOOK.md](RUNBOOK.md).
 - **Same fee policy for both flows.** A platform-collected seller bears the same kinds of fees a direct-charge seller would (Whop's processing fees and Ledgerly's 8%); Ledgerly absorbs the tax-service fee it incurs as merchant of record.
 - **USD only, for now.** Checkouts accept USD. Settlement, transfers and reconciliation were exercised in USD; adding EUR or BRL needs per-currency settlement checks first.
 - **"Never take payments directly" is enforced here, not by Whop.** This service never creates a direct checkout for a `platform` seller, but their Whop account still has card acceptance enabled, so another integration or the Whop dashboard could. Whop's API has no switch to disable it (capabilities are read-only); ask Whop to restrict those accounts if the guarantee must hold platform-wide.
-- **Immediate transfers from float.** Platform-collected sellers are paid as soon as the payment succeeds, from Ledgerly's available balance. Sellers get money fast; Ledgerly carries ~1–2 days of settlement, refund and dispute risk.
+- **Immediate transfers from float.** Platform-collected sellers are paid as soon as the payment succeeds, from Ledgerly's available balance, and then withdraw themselves. Sellers get money fast; Ledgerly carries ~1–2 days of settlement, refund and dispute risk. Holding the share until the refund window passes (escrow) is an open decision in HANDOVER.
 - **Ledgerly fronts refunds** when a seller's balance is pending: transfer, then refund. The advance is a receivable from the seller to recover from future sales (not automated here).
 - **Local ledger mirrors the seller's Whop balance**: sale, Ledgerly fee, Whop processing fees (from Whop's `amount_after_fees`, never recomputed), refunds, transfers in, payouts.
 
@@ -305,6 +325,7 @@ Found while running this in production:
 9. **Transfers to unverified sellers succeed** and are immediately available; only withdrawal requires KYC.
 10. **Connected accounts can take payments before KYC**; only money out is gated.
 11. **Webhook payloads carry personal data** (payee legal name, buyer name, card BIN and last 4) to the platform. Treat the inbox as PII.
+12. **A failed transfer can still succeed.** Whop's API reference says a `failed` transfer may be retried under the same id and later resolve to `succeeded`. Never send a replacement just because a transfer failed.
 
 ---
 

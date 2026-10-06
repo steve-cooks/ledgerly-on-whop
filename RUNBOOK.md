@@ -9,6 +9,8 @@ What to do when something looks wrong. Every command here is safe to run more th
 | `pnpm ledgerly reconcile [ID]` | **Diagnose.** Diff Whop against our records; exit code 1 while anything is off. Changes nothing. |
 | `pnpm ledgerly reconcile --fix` | Pull **payout** state from Whop first (webhooks can miss a payout's final state), then diagnose. |
 | `pnpm ledgerly settle [ORDER_ID]` | **Pay sellers** what platform-collected orders still owe them. |
+| `pnpm ledgerly transfers:refresh` | Ask Whop about transfers still **pending** (or failed in the last 14 days); resend requests that never got an answer, under the same key. |
+| `pnpm ledgerly ops` | Run the whole hourly ops job now and print its summary. |
 | `pnpm ledgerly reprocess` | Retry **stored** events that were deferred or failed. |
 | `pnpm ledgerly reprocess EVENT_TYPE` | Re-apply every stored event of a type (after fixing a handler). |
 | Whop's webhook replay | Re-send events **we never stored** (endpoint down, webhook disabled). See "Webhooks aren't arriving". |
@@ -21,7 +23,11 @@ The operator console (`/`, operator sign-in) shows the last hourly ops run. Whop
 
 ## The hourly ops run says "Needs attention"
 
-Each run (`/api/cron/ops`) retries deferred webhook events, asks Whop about transfers still in flight, settles orders that still owe a seller, then syncs payouts and reconciles sellers. The alert lists what was wrong.
+Each run (`/api/cron/ops`) retries deferred and failed webhook events, settles transfers webhooks haven't, settles orders that still owe a seller, then syncs payouts and reconciles sellers. One failing event or stage doesn't stop the others. The alert lists what was wrong:
+
+- `event msg_… (type) fails: …`: that stored event's handler throws every time. Fix the cause (often bad data in the payload or a bug), then `pnpm ledgerly reprocess`.
+- `settle <order>: transfer ctt_… failed at Whop and may still succeed`: see "A platform-collected seller wasn't paid".
+- `<stage> failed: …`: that whole stage errored (often Whop or the database unreachable). The next run retries it.
 
 1. Run `pnpm ledgerly reconcile --fix` to see each seller's discrepancies.
 2. Act on each one:
@@ -29,8 +35,8 @@ Each run (`/api/cron/ops`) retries deferred webhook events, asks Whop about tran
 | `kind` / `problem` | Usually means | Do this |
 | --- | --- | --- |
 | payment `missing_locally` | We never stored the payment event | Check deliveries (below); replay from Whop if needed |
-| payment `state_mismatch` | A refund or failure we haven't applied | `pnpm ledgerly reprocess` (deferred events), else replay the refund event from Whop |
-| transfer `state_mismatch` | Transfer completed or failed without a webhook | The next run refreshes it; or `pnpm ledgerly settle` |
+| payment `state_mismatch` | Usually a refund we haven't applied (Whop shows it refunded) | `pnpm ledgerly reprocess` (deferred events), else replay `refund.*` events from Whop |
+| transfer `state_mismatch` | Transfer completed or failed without a webhook | `pnpm ledgerly transfers:refresh` (the hourly run does the same) |
 | payout `state_mismatch` | Whop skipped the payout's final webhook (seen in production) | `pnpm ledgerly reconcile --fix` |
 | obligation `unsettled` / `underpaid` | A platform-collected seller hasn't been paid in full | `pnpm ledgerly settle <order>`; if it says "in flight", wait for the transfer |
 | obligation `overpaid` | More was sent than owed | Don't send less to "fix" it. Record the difference and recover it from the seller's next sale |
@@ -63,6 +69,7 @@ Each run (`/api/cron/ops`) retries deferred webhook events, asks Whop about tran
    - `processing / awaiting_provider_acceptance` or `in_transit`: sent. Standard bank payouts take 1–5 business days (look at `estimated_arrival`).
    - `completed`: Whop has sent it; the bank may still take a few days.
    - `failed` / `reversed`: our ledger credits the seller back only once Whop reports the funds returned (`failure.funds_returned_at`) or the payout is `reversed`.
+   - `denied` / `canceled`: nothing was paid out; our ledger removes the debit.
 3. Check the basics: minimum payout is **$10**, the seller must have passed identity verification, and instant payouts are only available where Whop enabled them.
 4. If it's past `estimated_arrival` and still `in_transit`, contact Whop support with the payout id (`wdrl_…`).
 
@@ -80,17 +87,20 @@ On a direct charge the seller pays the refund from their **available** balance, 
 
 ## A platform-collected seller wasn't paid
 
-`pnpm ledgerly settle <order>` pays what the order still owes:
+`pnpm ledgerly settle <order>` pays what the order still owes. What it may answer:
 
-- "a transfer is still in flight": Whop hasn't confirmed the last transfer yet. The hourly run checks it; nothing to do.
-- After Whop confirms a transfer **failed**, the next settle sends a new attempt under a new key. Common causes: Ledgerly's available balance is too low (top up in the Whop dashboard), or Ledgerly's own account lacks verification.
-- It never sends a second transfer while one may still succeed, and never sends a different amount under a key already used.
+- **"a transfer is still in flight"**: the last transfer is pending. If it's older than a few minutes, run `pnpm ledgerly transfers:refresh`: it asks Whop, or, if the request never got an answer, resends it under the **same** key (Whop returns the original transfer if it made one, so this can't pay twice).
+- **Whop refused the transfer** (`status: failed` with an `error`, e.g. not enough balance): no transfer was created. Fix the cause (top up Ledgerly's balance in the Whop dashboard, or finish Ledgerly's own verification); the next settle sends a new attempt under a new key.
+- **"transfer ctt_… failed at Whop and may still succeed"**: Whop created the transfer and it failed. Whop can retry a failed transfer to success under the same id, so settle won't send a replacement on its own. The hourly run keeps checking it for two weeks. If Whop confirms it's final, run `pnpm ledgerly settle <order> --replace-failed`. If the old one completes anyway, reconciliation reports the order `overpaid`.
+- **"N webhook event(s) for this payment can't be applied yet"**: a refund or dispute for this payment is waiting in the inbox. `pnpm ledgerly reprocess`, then settle again.
+
+It never sends a second transfer while one may still succeed, and never sends a different amount under a key already used.
 
 ---
 
 ## An order is "disputed"
 
-Whop opened a chargeback. The order is held: `GET /api/orders/:id` returns `deliverable: false`, and a platform-collected seller's share isn't paid. Respond in the Whop dashboard (Payments → Disputes). If the dispute is won (`dispute.updated` → `won`), the order returns to `paid` and settles normally.
+Whop opened a chargeback. The order is held: `GET /api/orders/:id` returns `deliverable: false`, and a platform-collected seller's share isn't paid. Respond in the Whop dashboard (Payments → Disputes). If the dispute is won (`dispute.updated` → `won`), the hold is released: the order goes back to `paid` and settles normally, unless it was refunded meanwhile (then it stays `refunded`). A lost dispute keeps the order held.
 
 ---
 
