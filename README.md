@@ -11,6 +11,8 @@ Ledgerly is a marketplace for creators' digital goods: 3,000 sellers in 40 count
 
 It runs in production at <https://ledgerly-whop.vercel.app> (Next.js on Vercel, Postgres on Supabase). Everything here was exercised with real money; the proof run and raw API responses are in [`examples/assessment/`](examples/assessment) with personal data removed.
 
+Around the payments core it hosts an **operator console** for Ledgerly staff (`/`) and a small **demo marketplace** (`/shop` for buyers, `/sell` for sellers) that stands in for Ledgerly's own storefront, so the whole flow can be tried end to end.
+
 **Production, not sandbox.** The assessment asked for the sandbox. Whop's sandbox doesn't support payouts or the embedded payout components yet, and when asked for platform access Whop's team said to use production. Every flow here ran in production with small real amounts: three $2–10 purchases, a $50 balance top-up, and a $10 withdrawal.
 
 > **Ledgerly team: start with [HANDOVER.md](HANDOVER.md)** (what this is, how it plugs into Ledgerly, deploy, migrate sellers, open decisions) and keep [RUNBOOK.md](RUNBOOK.md) for on-call. This README is the technical reference.
@@ -24,12 +26,15 @@ It runs in production at <https://ledgerly-whop.vercel.app> (Next.js on Vercel, 
 3. [Webhooks: each effect once](#webhooks-each-effect-once)
 4. [Reconciliation](#reconciliation)
 5. [Seller payouts UI](#seller-payouts-ui)
-6. [HTTP API](#http-api)
-7. [Setup](#setup)
-8. [Operating it](#operating-it)
-9. [Decisions and trade-offs](#decisions-and-trade-offs)
-10. [Whop behaviour to know before going live](#whop-behaviour-to-know-before-going-live)
-11. [Assessment proof run](#assessment-proof-run)
+6. [Operator console](#operator-console)
+7. [Demo marketplace](#demo-marketplace)
+8. [Sign-in](#sign-in)
+9. [HTTP API](#http-api)
+10. [Setup](#setup)
+11. [Operating it](#operating-it)
+12. [Decisions and trade-offs](#decisions-and-trade-offs)
+13. [Whop behaviour to know before going live](#whop-behaviour-to-know-before-going-live)
+14. [Assessment proof run](#assessment-proof-run)
 
 ---
 
@@ -69,15 +74,22 @@ flowchart LR
 | [`supabase/migrations`](supabase/migrations) | Schema |
 | [`cli/ledgerly.ts`](cli/ledgerly.ts) | The `pnpm ledgerly` operations CLI |
 | [`src/lib/import-sellers.ts`](src/lib/import-sellers.ts) | Bulk seller migration from CSV |
-| [`src/lib/ops-job.ts`](src/lib/ops-job.ts) | Hourly job: retry deferred events, refresh in-flight transfers, settle, sync payouts, reconcile, alert |
+| [`src/lib/ops-job.ts`](src/lib/ops-job.ts) | Hourly job: retry deferred events, refresh in-flight transfers, settle, sync verification, sync payouts, reconcile, alert |
+| [`src/lib/operator.ts`](src/lib/operator.ts) | Operator console: verification mirror, seller list, reminders, payment mode |
+| [`src/lib/whop-oauth.ts`](src/lib/whop-oauth.ts) | Sign in with Whop (staff and seller apps), Ledgerly team check |
+| [`src/lib/seller-session.ts`](src/lib/seller-session.ts) | Session cookies, `currentSeller()`, `isOperator()` |
+| [`src/lib/seller-accounts.ts`](src/lib/seller-accounts.ts), [`whop-seller-signin.ts`](src/lib/whop-seller-signin.ts) | Demo marketplace: seller sign-in (Supabase Auth), opening a store |
+| [`src/lib/products.ts`](src/lib/products.ts) | Demo marketplace: catalog, file uploads, buy, signed downloads |
 | [`examples/assessment/`](examples/assessment) | The assessment's proof run: one script per step, plus evidence |
-| [`tests/`](tests) | Unit tests (fee math, seller share on real fee data, signatures, routing, reconciliation, CSV) and [`tests/integration/`](tests/integration): the webhook route and money handlers on a real Postgres |
+| [`tests/`](tests) | Unit tests (fee math, seller share on real fee data, signatures, routing, reconciliation, CSV, product rules) and [`tests/integration/`](tests/integration): routes and money handlers on a real Postgres |
 
 ---
 
 ## Money flows
 
 Two ways money reaches a seller. Which one is used is a per-seller policy (`sellers.collection_mode`); `POST /api/checkouts` picks it, so a `platform` seller can never be given a direct checkout.
+
+Ledgerly's fee is `PLATFORM_FEE_BPS` (8%) unless an operator set a rate for that seller (`sellers.fee_bps`, 0–50%). Both the mode and the fee are read when a checkout is created; existing orders keep theirs.
 
 ### 1. Direct charge (`collection_mode = direct`)
 
@@ -151,6 +163,10 @@ sequenceDiagram
 
 Every transfer state change (create response, polling, `transfer.completed`/`failed`) goes through one forward-only routine, `applyTransferState`, which also books the seller's ledger once.
 
+### Whop products
+
+Every checkout's plan belongs to a Whop product, identified as `ledgerly-<sku>` on the account that sells it. The first checkout for a SKU on an account creates the product inline. Whop won't take the same inline product again on a connected account (`403 You are not authorized`), so later checkouts send its `product_id`. `whop_products` maps (account, `ledgerly-<sku>`) to the product id; a product made before that table existed is found once with `products.list` by `external_identifier`.
+
 ---
 
 ## Webhooks: each effect once
@@ -166,7 +182,7 @@ Whop delivers **at least once**, retries for ~3 days, doesn't guarantee order, a
 7. **Version-tolerant routing**: `account_id` (payloads pinned to `2026-08-14`+), else `company_id` (older/unpinned), else the object's own account. Legacy `withdrawal.*` uses the payout handler (same `wdrl_` id).
 8. Work that calls Whop (the seller transfer) runs **after** the 2xx via `after()`, so Whop never waits on it.
 
-**Tested**: [`tests/integration/`](tests/integration) runs the real route against Postgres with Whop stubbed (42 tests): concurrent duplicate deliveries, near-duplicates, a handler crash after partial writes (all rolled back, `500`, retry succeeds), out-of-order payment and payout events, refund-before-payment, concurrent and pending refunds, disputed → refunded → won, replayed old dispute events, refund or dispute arriving before payment (seller not paid), payout reversals, denials and amount changes, payout repair (missing final state, no backwards moves, a webhook landing mid-read), double `transfer.completed`, a failed transfer later succeeding (paid once), refused vs unanswered transfer requests, a completion webhook beating the create response, completion found only by polling, a poison event in the hourly job, conflicting key reuse, concurrent checkout retries and onboarding retries. These are route + database tests, not deployed end-to-end tests. **Proven live**: replaying real deliveries returns `duplicate` and changes nothing (`pnpm ledgerly smoke`, [evidence](examples/assessment/evidence/05-webhooks/test-replay-suspend.json)).
+**Tested**: [`tests/integration/`](tests/integration) runs the real routes against Postgres with Whop stubbed: concurrent duplicate deliveries, near-duplicates, a handler crash after partial writes (all rolled back, `500`, retry succeeds), out-of-order payment and payout events, refund-before-payment, concurrent and pending refunds, disputed → refunded → won, replayed old dispute events, refund or dispute arriving before payment (seller not paid), payout reversals, denials and amount changes, payout repair (missing final state, no backwards moves, a webhook landing mid-read), double `transfer.completed`, a failed transfer later succeeding (paid once), refused vs unanswered transfer requests, a completion webhook beating the create response, completion found only by polling, a poison event in the hourly job, conflicting key reuse, concurrent checkout retries and onboarding retries. Operator actions, both Whop sign-ins, product reuse and the marketplace (buy, download, opening a store) have their own. These are route + database tests, not deployed end-to-end tests. **Proven live**: replaying real deliveries returns `duplicate` and changes nothing (`pnpm ledgerly smoke`, [evidence](examples/assessment/evidence/05-webhooks/test-replay-suspend.json)).
 
 ### What is and isn't guaranteed
 
@@ -194,7 +210,7 @@ For one seller it pulls from Whop: direct-charge payments on the seller's accoun
 
 `--fix` first syncs payout state from Whop, because webhooks don't cover every transition (our real payout reached `completed` with no `payout.updated` for it). Each payout is compared under a row lock and changed only if Whop's state differs, it isn't a step backwards, and nothing wrote the row since the read started (a webhook that lands meanwhile wins; the next run looks again). It then goes through the webhook handler's own `applyPayout`, so the ledger follows the same rules.
 
-The hourly job (`/api/cron/ops`, Vercel Cron; `pnpm ledgerly ops` runs it by hand) retries deferred and failed events, settles transfers webhooks haven't (polls Whop, resends unanswered requests under the same key, and watches failed ones for two weeks), settles orders that still owe a seller something, then syncs payouts and reconciles sellers. Every stage and every item in it is isolated: one event that always fails, or Whop being down for one stage, is reported and the rest still runs. It fetches Ledgerly's payments once per run, stops starting new work at 4 minutes (reconciliation continues from the next seller on the following run; unfinished replay, transfer and settlement work is simply picked up again), always records the run in `job_runs` (latest shown on the operator console), and posts to `ALERT_WEBHOOK_URL` on any problem, including a previous run that never finished. At 3,000 sellers the full-history payment fetch should become a time window; see HANDOVER.
+The hourly job (`/api/cron/ops`, Vercel Cron; `pnpm ledgerly ops` runs it by hand) retries deferred and failed events, settles transfers webhooks haven't (polls Whop, resends unanswered requests under the same key, and watches failed ones for two weeks), settles orders that still owe a seller something, refreshes the verification mirror for up to 100 sellers, then syncs payouts and reconciles sellers. Every stage and every item in it is isolated: one event that always fails, or Whop being down for one stage, is reported and the rest still runs. It fetches Ledgerly's payments once per run, stops starting new work at 4 minutes (reconciliation continues from the next seller on the following run; unfinished replay, transfer and settlement work is simply picked up again), always records the run in `job_runs` (latest shown on the operator console), and posts to `ALERT_WEBHOOK_URL` on any problem, including a previous run that never finished. At 3,000 sellers the full-history payment fetch should become a time window; see HANDOVER.
 
 On its first runs it caught two real bugs in this repo's handlers (a replayed `payment.succeeded` regressing a refunded order; a replayed `refund.created` doubling `refunded_amount`) and the missing payout webhook. Snapshot at the last production check (2026-10-06): all three sellers reconcile clean, Mira 8.48 = 8.48, Batida 17.41 = 17.41 (three sales; the last a $1 end-to-end run of the deployed code), Vorlage 0.
 
@@ -212,9 +228,48 @@ On its first runs it caught two real bugs in this repo's handlers (a replayed `p
 - Ledgerly charges **+$0.50 on instant (RTP) withdrawals** for every seller (`PATCH /accounts/{platform}/fees` → `child_markups.payouts.rtp`). The fee panel reads each rail's Whop fee and Ledgerly markup live.
 - **Hosted alternative**: "Open hosted payouts portal" creates a `payouts_portal` account link and redirects.
 
-**Staff sign in with Whop.** The console at `/` has a **Sign in with Whop** button (OAuth 2.1 with PKCE, server-side, against the OAuth app in `WHOP_OAUTH_CLIENT_ID`, a confidential client whose `WHOP_OAUTH_CLIENT_SECRET` stays on the server). After Whop confirms who they are, the service checks Whop's team list for Ledgerly (`teamMembers.list`) and lets in owners, admins, managers and support staff; anyone else sees why they were refused. No Whop tokens are kept (the refresh token is revoked straight away); the console session lasts 8 hours.
+---
 
-**Sellers** sign in through Ledgerly's own site in production. Until that's wired in, a demo sign-in stands in: `pnpm ledgerly login-link <seller>` (or `--operator`) prints a link that expires in 24 hours and opens an 8-hour session. Tokens are signed with their purpose: a link can only start a session and a session cookie can't be exchanged for a new one, so every session ends 8 hours after sign-in. Demo links are off unless `DEMO_LOGIN_ENABLED=true`; every session needs `SESSION_SECRET`. Seller status pages show details only to that seller or an operator; the operator console requires an operator session.
+## Operator console
+
+`/` is for Ledgerly staff ([sign-in](#sign-in)). Whop's dashboard (Sub accounts) already does browsing, filtering, seller details, payments and refunds, so the console only adds what Whop can't:
+
+- **Seller list**: 25 a page, search by id, email or title, filter to sellers who still need verification. Verification is mirrored locally (`sellers.verification_status`, `outstanding_actions`) so the list never calls Whop per row: `account.updated` keeps it current, the hourly job refreshes up to 100 sellers per run (least recently synced first), and `pnpm ledgerly sellers:sync [ID]` backfills.
+- **Send reminder**: asks a seller to finish verification. In-app only: recorded in `seller_reminders` and shown as a banner on the seller's `/sellers/:id` for 14 days. One per seller per 24 hours. Whop notifications aren't possible: an app can only notify accounts it's installed on, and a company API key can't install apps.
+- **Payment mode**: direct or platform-collected. Applies to new purchases; logged in `seller_mode_changes`.
+- **Ledgerly fee**: a percentage per seller, 0–50%; empty means the platform default (`PLATFORM_FEE_BPS`). Stored as `sellers.fee_bps`, logged in `seller_fee_changes`, applies to new purchases. For direct sellers it's the checkout's `application_fee_amount`; for platform-collected sellers it comes off their share.
+- **Open in Whop**: each seller links to their connected account in Whop's dashboard.
+- Cards for webhooks processed, the last hourly run and recent orders.
+
+The same tools show on a seller's `/sellers/:id` page for staff. Each action is a form post to `/api/operator/sellers/:id/<action>`: it needs an operator session and a same-origin request, and redirects back with the outcome.
+
+---
+
+## Demo marketplace
+
+Stands in for Ledgerly's storefront so the whole flow can be demoed with real money. In production Ledgerly's own site does this and calls the [HTTP API](#http-api); the payments code underneath is the same.
+
+- **Buyers** (`/shop`, no account): **Buy** creates a Whop checkout (`createCheckout`, as `POST /api/checkouts` does) and sends them to Whop. Whop returns them to `/orders/:id`, which shows **Download** once the order is `paid`. The file comes from the private Supabase Storage bucket `deliverables` through a 60-second signed URL, re-checked on every click.
+- **Sellers** (`/sell`): sign up or log in with email and password, Google or Whop. `/sell/onboard` opens a store: it creates the seller (direct mode) and their Whop connected account, then sends them to Whop's identity verification. `/sell/dashboard` has their products (files uploaded straight to Storage, up to 10 MB), verification status and a link to the Seller Hub.
+- The shop lists active products with a file, from sellers that have a Whop account.
+
+---
+
+## Sign-in
+
+In production, sellers sign in through Ledgerly's own site, which replaces the marketplace and demo sign-ins ([HANDOVER](HANDOVER.md)). Staff sign-in stays.
+
+| Who | How | Code |
+| --- | --- | --- |
+| Staff | **Sign in with Whop** on `/`, Whop OAuth app "Ledgerly Console" | `whop-oauth.ts`, `/api/auth/whop/{start,callback}`, `/api/auth/signout` |
+| Marketplace sellers | Supabase Auth: email and password, Google, or **Continue with Whop** (Whop OAuth app "Ledgerly") | `seller-accounts.ts`, `whop-seller-signin.ts`, `/auth/callback`, `/auth/whop/{start,callback}`, `/auth/signout` |
+| Demo | `pnpm ledgerly login-link <seller>` or `--operator` | `seller-session.ts`, `/demo/login` |
+
+- **Staff**: OAuth 2.1 with PKCE on the server, as a confidential client (`WHOP_OAUTH_CLIENT_SECRET` never reaches the browser). Once Whop confirms who they are, the service checks Ledgerly's Whop team (`teamMembers.list`, needs `company:authorized_user:read`) and lets in owners, admins, managers and support; anyone else is told why. Whop's tokens aren't kept (the refresh token is revoked straight away). The session is a signed cookie that lasts 8 hours. Manage staff in Whop (Settings → Team).
+- **Sellers**: Supabase Auth with email confirmation on. Google is a Supabase provider. Whop can't be one: Whop requires an OIDC `nonce` that Supabase's custom providers don't send. So our server runs the Whop round trip (same code as staff, with the seller app), requires a verified Whop email, finds or creates the Supabase user with that email, and starts their Supabase session (`auth.admin.generateLink` → `verifyOtp`). `seller_users` links a Supabase user to their seller (one store each). `src/proxy.ts` refreshes the Supabase session cookie on page requests.
+- **Demo links** expire in 24 hours and open an 8-hour session. Tokens are signed with their purpose: a link can only start a session and a session cookie can't be exchanged for a new one. Off unless `DEMO_LOGIN_ENABLED=true`; every console or demo session needs `SESSION_SECRET`.
+
+`currentSeller()` is the demo seller session if there is one, else the Supabase seller. A staff session doesn't hide it: someone can be both. `isOperator()` is true only for a staff session. Seller status pages show details only to that seller or staff, and staff tools only on other people's stores; on your own store you see the seller view.
 
 ---
 
@@ -233,6 +288,9 @@ All admin endpoints take `Authorization: Bearer $ADMIN_API_TOKEN`. Errors: `400`
 | `GET` | `/api/sellers/:id/wallet-token` | (seller session) | `{ token, expiresAt }` |
 | `GET` | `/api/sellers/:id/payouts-portal` | (seller session) | Redirect to Whop's hosted portal |
 | `GET` | `/api/sellers/:id/onboarding-link` | (seller session) | Redirect to a fresh Whop onboarding link (the "Continue verification" / "Get a new link" button on `/sellers/:id`) |
+| `POST` | `/api/operator/sellers/:id/<action>` | (operator session, same-origin form post) | Redirect back with the outcome. See [Operator console](#operator-console) |
+| `POST` | `/shop/:productId/buy` | form `nonce` | Redirect to Whop's checkout (or to the order if it's already paid). A repeated nonce reuses the order |
+| `GET` | `/orders/:orderId/download` | | Redirect to a 60-second signed file URL; `403` unless the order is `paid` |
 
 ```bash
 curl -X POST "$APP_URL/api/sellers" -H "Authorization: Bearer $ADMIN_API_TOKEN" \
@@ -255,8 +313,9 @@ pnpm dev
 1. **Platform account**: create Ledgerly's business on Whop (dashboard or `whop accounts create`).
 2. **API key**: dashboard → Developer → Create API key → Custom permissions (see scopes below). Creating keys requires 2FA; API keys cannot create API keys.
 3. **Webhook**: deploy, set `APP_URL`, then `pnpm ledgerly webhook:create`. It creates one webhook on the platform account with `child_resource_events: true`, pinned to `api_version_date: 2026-09-29`, subscribed to the assessment's eight events plus `refund.updated`, `dispute.updated` and `transfer.failed` (so refunds, disputes and transfers reach a final state), and writes the signing secret to `.env.local` without printing it. `pnpm ledgerly webhook:sync` brings an existing webhook in line.
-4. **Vercel**: add the same env vars (`vercel env add …`) and `vercel deploy --prod`.
-5. **Check**: `pnpm ledgerly smoke` runs live checks that move no money.
+4. **Sign-in and the demo marketplace**: two Whop OAuth apps, Supabase Auth providers and a Storage bucket. Steps in [HANDOVER](HANDOVER.md#deploy-your-own-copy); variables in [`.env.example`](.env.example).
+5. **Vercel**: add the same env vars (`vercel env add …`) and `vercel deploy --prod`.
+6. **Check**: `pnpm ledgerly smoke` runs live checks that move no money.
 
 ### API key scopes
 
@@ -266,7 +325,7 @@ The key needs these permissions. Most are used on every request; a few are only 
 | --- | --- |
 | Connected accounts | `company:create_child`, `company:basic:read`, `company:balance:read` (capabilities, balances) |
 | Account links (onboarding, hosted portal) | `payout:account:read`, `payout:account:update`, `payout:transfer:read`, `payout:transfer:export`, `payout:withdrawal:read`, `payout:withdraw_funds`, `payout:destination:read`, `payout:create_destination`, `payout:update_destination`, `payout:delete_destination`. Whop requires the key to hold every action a link's token carries; this isn't documented (found by error messages and the token's claims). |
-| Checkouts | `checkout_configuration:create`, `checkout_configuration:basic:read`, `plan:create`, `plan:basic:read`, `access_pass:create`, `access_pass:basic:read` |
+| Checkouts | `checkout_configuration:create`, `checkout_configuration:basic:read`, `plan:create`, `plan:basic:read`, `access_pass:create`, `access_pass:basic:read` (products are access passes; read finds a seller's existing product) |
 | Payments | `payment:basic:read`, `payment:manage` (refunds), `payment:dispute:read` |
 | Transfers | `payout:transfer_funds` (plus the transfer read scopes above) |
 | Staff sign-in (team check) | `company:authorized_user:read` (and the OAuth app itself needs `oauth:token_exchange`) |
@@ -293,6 +352,7 @@ The key needs these permissions. Most are used on every request; a few are only 
 | `pnpm ledgerly reprocess [EVENT_TYPE]` | Retry deferred/failed events; with a type, re-apply every stored event of it (idempotent). It can't recover an event Whop never delivered: use reconcile and Whop's replay for that |
 | `pnpm ledgerly trace PAY_ID` | A payment's fee lines and both balances |
 | `pnpm ledgerly webhook:create` / `webhook:sync` | Register the platform webhook (secret to `.env.local`) / update its events and pin |
+| `pnpm ledgerly sellers:sync [ID]` | Refresh the console's verification mirror from Whop, for one seller or all |
 | `pnpm ledgerly login-link ID \| --operator` | Demo sign-in link (24h) |
 | `pnpm ledgerly smoke` | Live checks against the deployment that move no money |
 | `pnpm test` · `pnpm test:integration` · `pnpm typecheck` · `pnpm lint` | Checks. `test:integration` starts a throwaway Postgres in Docker. CI runs all of them plus `pnpm build` on pushes to `main` and on pull requests |
@@ -331,6 +391,10 @@ Found while running this in production:
 11. **Webhook payloads carry personal data** (payee legal name, buyer name, card BIN and last 4) to the platform. Treat the inbox as PII.
 12. **A failed transfer can still succeed.** Whop's API reference says a `failed` transfer may be retried under the same id and later resolve to `succeeded`. Never send a replacement just because a transfer failed.
 13. **A confidential OAuth app needs `oauth:token_exchange`.** Without it on the app's Permissions tab, the code exchange fails with `401 invalid_client`. The OAuth guide doesn't mention it, and `apps.create` doesn't return the client secret.
+14. **Whop's OAuth requires an OIDC `nonce`.** Supabase's custom OIDC providers don't send one, so "Sign in with Whop" can't be a Supabase provider. Run the OAuth flow on your own server.
+15. **An inline product can't be re-sent on a connected account.** The first checkout can create the product inline (`plan.product` with `external_identifier`). Sending the same inline product to that seller's account again fails with an opaque `403 You are not authorized`. Reference it by `product_id`.
+16. **Apps can only notify accounts they're installed on, and a company API key can't install apps.** The platform can't send Whop notifications to its connected accounts.
+17. **Seller countries**: Whop onboards sellers from the ISO country list minus sanctioned countries. The store form offers that list (`COUNTRY_NAMES` in `src/components/ui.tsx`); Whop's verification has the final say.
 
 ---
 
