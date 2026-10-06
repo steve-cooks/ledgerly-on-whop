@@ -269,7 +269,7 @@ The key needs these permissions. Most are used on every request; a few are only 
 | Checkouts | `checkout_configuration:create`, `checkout_configuration:basic:read`, `plan:create`, `plan:basic:read`, `access_pass:create`, `access_pass:basic:read` |
 | Payments | `payment:basic:read`, `payment:manage` (refunds), `payment:dispute:read` |
 | Transfers | `payout:transfer_funds` (plus the transfer read scopes above) |
-| Staff sign-in (team check) | `company:authorized_user:read` |
+| Staff sign-in (team check) | `company:authorized_user:read` (and the OAuth app itself needs `oauth:token_exchange`) |
 | Webhooks | `developer:manage_webhook`, `webhook_receive:payments`, `:refunds`, `:disputes`, `:transfers`, `:withdrawals`, `:accounts` |
 | Setup / occasional | `company:update_child_fees` (withdrawal markup), `company:suspend_child` (suspensions), `payment:charge` (scripted top-ups) |
 | Optional | `identity:read`, `identity:write`: only if you embed Whop's KYC element; the current pages don't |
@@ -330,6 +330,7 @@ Found while running this in production:
 10. **Connected accounts can take payments before KYC**; only money out is gated.
 11. **Webhook payloads carry personal data** (payee legal name, buyer name, card BIN and last 4) to the platform. Treat the inbox as PII.
 12. **A failed transfer can still succeed.** Whop's API reference says a `failed` transfer may be retried under the same id and later resolve to `succeeded`. Never send a replacement just because a transfer failed.
+13. **A confidential OAuth app needs `oauth:token_exchange`.** Without it on the app's Permissions tab, the code exchange fails with `401 invalid_client`. The OAuth guide doesn't mention it, and `apps.create` doesn't return the client secret.
 
 ---
 
