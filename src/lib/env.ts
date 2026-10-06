@@ -16,6 +16,8 @@ const schema = z.object({
   SESSION_SECRET: z.string().min(32).optional(),
   // "Sign in with Whop" for operators: the OAuth app's client id (app_…). Sign-in is off without it.
   WHOP_OAUTH_CLIENT_ID: z.string().startsWith("app_").optional(),
+  // Its client secret (the app's OAuth tab, "Confidential" mode). Never sent to the browser.
+  WHOP_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
   APP_URL: z.string().url().default("http://localhost:3000"),
   // Ledgerly's take rate, in basis points (800 = 8%).
   PLATFORM_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(800),

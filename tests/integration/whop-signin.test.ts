@@ -47,7 +47,7 @@ describe("Sign in with Whop (operators)", () => {
     expect(await operator()).toEqual({ name: "Ops Person" });
     expect(fakeWhop.teamMembers.list).toHaveBeenCalledWith({ account_id: "biz_platform", user_id: "user_ops", status: "joined" });
     const tokenCall = JSON.parse(oauth.mock.calls.find(([u]) => u.endsWith("/oauth/token"))![1].body);
-    expect(tokenCall).toMatchObject({ grant_type: "authorization_code", client_id: "app_test", code_verifier: expect.any(String) });
+    expect(tokenCall).toMatchObject({ grant_type: "authorization_code", client_id: "app_test", client_secret: "secret_test", code_verifier: expect.any(String) });
     expect(oauth.mock.calls.some(([u]) => u.endsWith("/oauth/revoke"))).toBe(true); // no long-lived token kept
   });
 

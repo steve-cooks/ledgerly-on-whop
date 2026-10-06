@@ -4,7 +4,8 @@ import { whop } from "./whop";
 
 /**
  * "Sign in with Whop" for Ledgerly's operators: OAuth 2.1 authorization code + PKCE against
- * Whop's OAuth app (WHOP_OAUTH_CLIENT_ID), done entirely on the server.
+ * Whop's OAuth app, done entirely on the server. The app is a confidential client, so the code
+ * exchange also sends WHOP_OAUTH_CLIENT_SECRET.
  *
  * Signing in with Whop proves who someone is; access comes from being on Ledgerly's Whop
  * team (Whop dashboard → Settings → Team) in one of OPERATOR_ROLES. Removing someone from the
@@ -14,7 +15,7 @@ const OAUTH = "https://api.whop.com/oauth";
 export const OPERATOR_ROLES = new Set(["owner", "admin", "manager", "support"]);
 
 export function oauthConfigured() {
-  return Boolean(env().WHOP_OAUTH_CLIENT_ID && env().SESSION_SECRET);
+  return Boolean(env().WHOP_OAUTH_CLIENT_ID && env().WHOP_OAUTH_CLIENT_SECRET && env().SESSION_SECRET);
 }
 
 export function redirectUri() {
@@ -22,6 +23,7 @@ export function redirectUri() {
 }
 
 const b64url = (buf: Buffer) => buf.toString("base64url");
+const client = () => ({ client_id: env().WHOP_OAUTH_CLIENT_ID, client_secret: env().WHOP_OAUTH_CLIENT_SECRET });
 
 /** A fresh PKCE verifier and state, and the Whop URL to send the browser to. */
 export function authorizationRequest() {
@@ -51,11 +53,14 @@ export async function userFromCode(code: string, verifier: string): Promise<Whop
       grant_type: "authorization_code",
       code,
       redirect_uri: redirectUri(),
-      client_id: env().WHOP_OAUTH_CLIENT_ID,
       code_verifier: verifier,
+      ...client(),
     }),
   });
-  if (!res.ok) throw new Error(`token exchange failed (${res.status})`);
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string; error_description?: string };
+    throw new Error(`token exchange failed (${res.status} ${err.error ?? ""} ${err.error_description ?? ""})`.trim());
+  }
   const tokens = (await res.json()) as { access_token: string; refresh_token?: string };
 
   const info = await fetch(`${OAUTH}/userinfo`, { headers: { authorization: `Bearer ${tokens.access_token}` } });
@@ -67,7 +72,7 @@ export async function userFromCode(code: string, verifier: string): Promise<Whop
     await fetch(`${OAUTH}/revoke`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: tokens.refresh_token, client_id: env().WHOP_OAUTH_CLIENT_ID }),
+      body: JSON.stringify({ token: tokens.refresh_token, ...client() }),
     }).catch(() => {});
   }
   return { id: u.sub, name: u.name || u.preferred_username || "Ledgerly operator" };

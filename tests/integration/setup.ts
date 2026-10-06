@@ -15,6 +15,7 @@ Object.assign(process.env, {
   APP_URL: "https://ledgerly.test",
   SESSION_SECRET: "s".repeat(32),
   WHOP_OAUTH_CLIENT_ID: "app_test",
+  WHOP_OAUTH_CLIENT_SECRET: "secret_test",
 });
 
 // Fresh schema from the real migrations, once per file.
