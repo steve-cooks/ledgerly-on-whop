@@ -37,8 +37,13 @@ export default async function PayoutsPage({
       <SiteHeader
         section="Seller Hub"
         right={
-          <span className="flex items-center gap-2 text-sm text-muted">
-            Signed in as <span className="font-medium text-ink">{s.title}</span>
+          <span className="flex items-center gap-4 text-sm text-muted">
+            <a href={`/sellers/${encodeURIComponent(externalId)}`} className="font-medium text-accent-ink hover:underline">
+              Account status
+            </a>
+            <span className="hidden sm:inline">
+              Signed in as <span className="font-medium text-ink">{s.title}</span>
+            </span>
           </span>
         }
       />

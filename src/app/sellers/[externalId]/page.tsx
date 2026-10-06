@@ -79,6 +79,23 @@ export default async function SellerPage({
             <Badge tone={verified ? "good" : "warn"}>{verified ? "Verified" : "Verification needed"}</Badge>
           </div>
 
+          {isSeller && (
+            <a
+              href={`/sellers/${encodeURIComponent(externalId)}/payouts`}
+              className={`flex items-center justify-between rounded-2xl border px-5 py-4 text-sm transition ${
+                needsVerification ? "border-line bg-surface hover:bg-bg" : "border-accent bg-accent-soft hover:opacity-90"
+              }`}
+            >
+              <span>
+                <span className="block font-medium text-ink">Seller Hub</span>
+                <span className="text-muted">
+                  {needsVerification ? "See your balance now. Withdrawals unlock once you're verified." : "Your balance, withdrawals and payout history."}
+                </span>
+              </span>
+              <span className="font-medium text-accent-ink">Open →</span>
+            </a>
+          )}
+
           <Card title="Identity verification" description="Whop verifies every seller before money can leave their balance.">
             <p className="text-sm">
               Status: <span className="font-medium">{s.identity.replace("_", " ")}</span>
