@@ -9,15 +9,17 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const PERSONAL_KEYS = new Set([
   "payer_name", "name", "username", "first_name", "last_name", "middle_name", "date_of_birth",
   "phone", "customer_phone", "line1", "line2", "postal_code", "billing_address", "shipping_address",
-  "profile_picture", "statement_descriptor", "nickname", "trace_code", "display_name",
+  "profile_picture", "statement_descriptor", "nickname", "trace_code", "display_name", "city",
 ]);
 // Any key that names card digits or a bank/card identifier, whatever Whop calls it this time
 // (last4, card_last4, issuer_identification_number, bin, exp_month, …).
 const PERSONAL_KEY_PATTERN = /(last_?4|issuer_identification|(^|_)bin$|^exp_(month|year)$|account_number|routing)/i;
+// Crypto wallet addresses and transaction hashes trace back to a real wallet.
+const HEX_ID = /^0x[0-9a-fA-F]{40,}$/;
 
 /** JSON with emails and personal fields replaced, so evidence can live in a public repo. */
 export function redact<T>(value: T): T {
-  const scrubbed = JSON.stringify(value, (k, v) => ((PERSONAL_KEYS.has(k) || PERSONAL_KEY_PATTERN.test(k)) && v != null ? "<redacted>" : v), 2);
+  const scrubbed = JSON.stringify(value, (k, v) => ((PERSONAL_KEYS.has(k) || PERSONAL_KEY_PATTERN.test(k)) && v != null) || (typeof v === "string" && HEX_ID.test(v)) ? "<redacted>" : v, 2);
   return JSON.parse(
     scrubbed.replace(EMAIL, (m) => {
       const tag = m.match(/\+([^@]+)@/)?.[1];
