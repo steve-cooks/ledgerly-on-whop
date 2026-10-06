@@ -4,11 +4,13 @@ import { sql } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const [sellers, orders, events] = await Promise.all([
+  const [sellers, orders, events, runs] = await Promise.all([
     sql()`select * from sellers order by created_at`,
     sql()`select * from orders where whop_payment_id is not null order by created_at desc limit 8`,
     sql()`select count(*)::int as n, count(*) filter (where processed_at is not null)::int as processed from webhook_events`,
+    sql()`select * from job_runs where job = 'ops' order by started_at desc limit 1`,
   ]);
+  const lastRun = runs[0];
 
   return (
     <>
@@ -48,10 +50,25 @@ export default async function Home() {
             </ul>
           </Card>
 
-          <Card title="Webhooks" description="Signed, stored once, processed exactly once.">
-            <p className="text-3xl font-semibold tabular">{events[0].processed}</p>
-            <p className="text-sm text-muted">of {events[0].n} events processed</p>
-          </Card>
+          <div className="space-y-6">
+            <Card title="Webhooks" description="Signed, stored once, processed exactly once.">
+              <p className="text-3xl font-semibold tabular">{events[0].processed}</p>
+              <p className="text-sm text-muted">of {events[0].n} events processed</p>
+            </Card>
+            <Card title="Books vs Whop" description="Hourly: sync payouts, reconcile every seller, settle shares.">
+              {lastRun ? (
+                <div className="flex items-center justify-between gap-3">
+                  <Badge tone={lastRun.ok ? "good" : "bad"}>{lastRun.ok ? "All sellers match" : "Needs attention"}</Badge>
+                  <span className="text-xs text-muted">
+                    Run #{lastRun.id} ·{" "}
+                    {new Date(lastRun.started_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })} UTC
+                  </span>
+                </div>
+              ) : (
+                <p className="text-sm text-muted">No run yet.</p>
+              )}
+            </Card>
+          </div>
 
           <Card title="Recent orders" className="lg:col-span-3">
             <div className="overflow-x-auto">

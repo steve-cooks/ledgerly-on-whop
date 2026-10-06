@@ -7,6 +7,10 @@ const schema = z.object({
   DATABASE_URL: z.string().url(),
   // Bearer token Ledgerly's backend uses to call /api/sellers, /api/checkouts, /api/reconcile.
   ADMIN_API_TOKEN: z.string().min(32).optional(),
+  // Vercel Cron sends "Authorization: Bearer $CRON_SECRET" to /api/cron/*.
+  CRON_SECRET: z.string().min(16).optional(),
+  // Optional Slack-compatible incoming webhook for ops alerts.
+  ALERT_WEBHOOK_URL: z.string().url().optional(),
   // Signs the demo seller session cookie.
   SESSION_SECRET: z.string().min(32).default("dev-only-insecure-session-secret-change-me"),
   APP_URL: z.string().url().default("http://localhost:3000"),
