@@ -1,0 +1,13 @@
+{
+  "order": {
+    "orderId": "5011b231-da57-4761-a076-888bb0405c1a",
+    "checkoutId": "ch_SPZIhLoOyafn3su",
+    "purchaseUrl": "https://whop.com/checkout/ch_SPZIhLoOyafn3su/",
+    "price": 10,
+    "fee": 0.8
+  },
+  "platform_only_seller_refused": {
+    "ok": false,
+    "error": "seller seller_br_batida may not take payments directly"
+  }
+}
