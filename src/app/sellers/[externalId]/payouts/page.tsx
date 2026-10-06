@@ -23,7 +23,17 @@ export default async function PayoutsPage({
       <>
         <SiteHeader section="Seller Hub" />
         <Page>
-          <Card title="Sign in required" description="Open your Ledgerly sign-in link to view your payouts." />
+          <Card
+            title="Sign in required"
+            description={
+              <>
+                <a href="/sell/login" className="font-medium text-accent-ink hover:underline">
+                  Log in to your seller account
+                </a>{" "}
+                to view your payouts.
+              </>
+            }
+          />
         </Page>
       </>
     );

@@ -1,9 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-export function Logo() {
+export function Logo({ href = "/" }: { href?: string }) {
   return (
-    <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight text-ink">
+    <Link href={href} className="flex items-center gap-2 font-semibold tracking-tight text-ink">
       <span className="grid size-7 place-items-center rounded-lg bg-ink text-[13px] font-bold text-white">L</span>
       Ledgerly
     </Link>
