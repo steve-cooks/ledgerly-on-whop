@@ -1,0 +1,87 @@
+{
+  "taken_at": "2026-10-06T00:01:35.707Z",
+  "ledgerly_platform": {
+    "id": "biz_3iFse5N7RWo86f",
+    "balances": [
+      {
+        "symbol": "USD",
+        "name": "<redacted>",
+        "balance": "0",
+        "value_usd": "0.00",
+        "price_usd": 1,
+        "icon_url": null,
+        "breakdown": {
+          "pending_settlements": [],
+          "in_transit": "0",
+          "available": "0",
+          "pending": "0",
+          "reserve": "0"
+        }
+      }
+    ],
+    "total_usd": "0.00"
+  },
+  "seller_br_batida": {
+    "id": "biz_oLmOUobBcpkXHb",
+    "balances": [
+      {
+        "symbol": "USD",
+        "name": "<redacted>",
+        "balance": "0",
+        "value_usd": "0.00",
+        "price_usd": 1,
+        "icon_url": null,
+        "breakdown": {
+          "pending_settlements": [],
+          "in_transit": "0",
+          "available": "0",
+          "pending": "0",
+          "reserve": "0"
+        }
+      }
+    ],
+    "total_usd": "0.00"
+  },
+  "seller_de_vorlage": {
+    "id": "biz_Vo8bzz6O0bWPcR",
+    "balances": [
+      {
+        "symbol": "USD",
+        "name": "<redacted>",
+        "balance": "0",
+        "value_usd": "0.00",
+        "price_usd": 1,
+        "icon_url": null,
+        "breakdown": {
+          "pending_settlements": [],
+          "in_transit": "0",
+          "available": "0",
+          "pending": "0",
+          "reserve": "0"
+        }
+      }
+    ],
+    "total_usd": "0.00"
+  },
+  "seller_us_mira": {
+    "id": "biz_9ejVCcyqXnAYeV",
+    "balances": [
+      {
+        "symbol": "USD",
+        "name": "<redacted>",
+        "balance": "0",
+        "value_usd": "0.00",
+        "price_usd": 1,
+        "icon_url": null,
+        "breakdown": {
+          "pending_settlements": [],
+          "in_transit": "0",
+          "available": "0",
+          "pending": "0",
+          "reserve": "0"
+        }
+      }
+    ],
+    "total_usd": "0.00"
+  }
+}
