@@ -100,14 +100,22 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
               Chase verification and set how each seller gets paid. Balances, payments, refunds and compliance live in Whop&apos;s dashboard.
             </p>
           </div>
-          <a
-            href={whopDashboardUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex shrink-0 items-center justify-center rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink transition hover:bg-bg"
-          >
-            All sellers in Whop ↗
-          </a>
+          <div className="flex shrink-0 gap-2">
+            <Link
+              href="/import"
+              className="inline-flex items-center justify-center rounded-xl bg-ink px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+            >
+              Import sellers
+            </Link>
+            <a
+              href={whopDashboardUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium text-ink transition hover:bg-bg"
+            >
+              All sellers in Whop ↗
+            </a>
+          </div>
         </div>
 
         {params.notice && (
