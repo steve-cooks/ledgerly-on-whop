@@ -1,8 +1,10 @@
+import { after } from "next/server";
 import { unwrapWebhook, WebhookVerificationError } from "@whop/sdk/helpers";
 import { sql } from "@/lib/db";
 import { env } from "@/lib/env";
 import { eventAccountId, type WhopEvent } from "@/lib/webhooks";
 import { handlers } from "@/lib/webhook-handlers";
+import { settlePlatformOrder } from "@/lib/checkout";
 
 /**
  * Whop webhook consumer.
@@ -51,6 +53,15 @@ export async function POST(request: Request) {
     await tx`update webhook_events set processed_at = now(), error = null where webhook_id = ${webhookId}`;
     return handler ? "processed" : "ignored";
   });
+
+  // Platform-collected sale just got paid: pay the seller's share right away from Ledgerly's
+  // balance. Runs after the 2xx so Whop never waits on (or retries because of) the transfer;
+  // settlePlatformOrder is idempotent per order, and scripts/settle-orders.ts sweeps misses.
+  if (outcome === "processed" && event.type === "payment.succeeded") {
+    const [order] = await sql()`
+      select id from orders where whop_payment_id = ${String(event.data.id)} and flow = 'platform' and status = 'paid'`;
+    if (order) after(() => settlePlatformOrder(order.id).catch((e) => console.error("settle failed", order.id, e)));
+  }
 
   return Response.json({ ok: true, webhook_id: webhookId, outcome });
 }

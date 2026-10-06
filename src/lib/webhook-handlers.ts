@@ -75,8 +75,30 @@ const refundCreated: Handler = async (ctx) => {
   }
 };
 
+/**
+ * Whop sends transfer.completed once per participant (origin and destination), with different
+ * webhook ids. Business effects key on the transfer id, so the second delivery is a no-op.
+ */
+const transferCompleted: Handler = async ({ tx, event }) => {
+  const t = event.data;
+  const id = str(t.id);
+  const key = str(((t.metadata ?? {}) as Obj).ledgerly_transfer_key);
+  if (!id) return;
+  const [row] = await tx`
+    update seller_transfers set status = 'completed', whop_transfer_id = ${id}, updated_at = now()
+    where whop_transfer_id = ${id} or (${key}::text is not null and idempotence_key = ${key})
+    returning *`;
+  if (!row) return; // not a Ledgerly seller transfer
+  await tx`
+    insert into ledger_entries (entry_key, seller_external_id, kind, amount, currency, whop_object_id, occurred_at)
+    values (${`transfer:${id}`}, ${row.seller_external_id}, 'transfer_in', ${Number(row.amount)}, ${row.currency}, ${id},
+            ${str(t.created_at) ?? event.timestamp})
+    on conflict (entry_key) do nothing`;
+};
+
 export const handlers: Partial<Record<string, Handler>> = {
   "payment.succeeded": paymentSucceeded,
   "payment.failed": paymentFailed,
   "refund.created": refundCreated,
+  "transfer.completed": transferCompleted,
 };
