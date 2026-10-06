@@ -23,6 +23,8 @@ export const CheckoutInput = z.object({
   // Ledgerly's own id for this purchase attempt. Retrying with the same key returns the same
   // order and checkout instead of creating a second one.
   requestKey: z.string().min(1).max(200).optional(),
+  // The marketplace product this order is for (its file is delivered once the order is paid).
+  productId: z.uuid().optional(),
 });
 export type CheckoutInput = z.input<typeof CheckoutInput>;
 
@@ -54,8 +56,8 @@ export async function createCheckout(raw: CheckoutInput) {
 
   // Get-or-create in one statement, so two concurrent requests with one key share one order.
   const [created] = await db`
-    insert into orders (seller_external_id, flow, title, sku, amount, currency, platform_fee, request_key)
-    values (${seller.external_id}, ${flow}, ${input.title}, ${input.sku}, ${price}, ${input.currency}, ${fee}, ${input.requestKey ?? null})
+    insert into orders (seller_external_id, flow, title, sku, amount, currency, platform_fee, request_key, product_id)
+    values (${seller.external_id}, ${flow}, ${input.title}, ${input.sku}, ${price}, ${input.currency}, ${fee}, ${input.requestKey ?? null}, ${input.productId ?? null})
     on conflict (request_key) do nothing
     returning *`;
   if (created) return finishCheckout(created, seller);
@@ -66,6 +68,7 @@ export async function createCheckout(raw: CheckoutInput) {
     existing.seller_external_id === seller.external_id &&
     existing.title === input.title &&
     (existing.sku ?? input.sku) === input.sku &&
+    (existing.product_id ?? null) === (input.productId ?? null) &&
     Math.round(Number(existing.amount) * 100) === Math.round(price * 100) &&
     existing.currency === input.currency;
   if (!same) throw new ConflictError(`requestKey ${input.requestKey} was already used for a different checkout`);
