@@ -80,27 +80,27 @@ sequenceDiagram
   participant B as Buyer
   participant L as Ledgerly service
   participant W as Whop
-  participant S as Seller's account (biz_seller)
-  participant P as Ledgerly's account (biz_platform)
+  participant S as Seller account
+  participant P as Ledgerly account
 
-  L->>L: platformFee($10.00) = $0.80 (integer cents, validated)
-  L->>W: POST /checkout_configurations {account_id: biz_seller,<br/>plan{initial_price 10, application_fee_amount 0.80}}<br/>Idempotency-Key: ledgerly:checkout:ORDER
+  L->>L: fee = 8% of $10.00 = $0.80<br/>(integer cents, validated)
+  L->>W: create checkout on seller account<br/>price 10.00, application_fee 0.80
   W-->>L: purchase_url
-  B->>W: pays $10.00 at Whop checkout
-  W->>S: +10.00 gross, −0.72 Whop fees, −0.80 application fee = 8.48 (pending ~T+1)
-  W->>P: +0.80 application_fee_payout (pending)
-  W-->>L: payment.succeeded (account_id = biz_seller)
-  L->>L: order → paid, ledger: sale +10.00, platform_fee −0.80, processing_fee −0.72
+  B->>W: pays $10.00
+  W->>S: +10.00, −0.72 Whop fees,<br/>−0.80 app fee = 8.48 pending
+  W->>P: +0.80 application fee
+  W-->>L: payment.succeeded
+  L->>L: order paid, ledger: sale,<br/>platform fee, processing fee
 
   Note over B,P: Refund
-  L->>W: POST /payments/PAY_ID/refund
-  W-->>L: 400 not_enough_balance (seller's 8.48 is still pending)
-  L->>W: POST /transfers {origin: biz_platform, destination: biz_seller, 10.00}<br/>idempotence_key: order:ORDER:refund_funding
-  L->>W: POST /payments/PAY_ID/refund (new Idempotency-Key)
+  L->>W: refund payment
+  W-->>L: 400 not_enough_balance<br/>(seller funds still pending)
+  L->>W: transfer 10.00 Ledgerly → seller<br/>key order:ID:refund_funding
+  L->>W: refund payment (new idempotency key)
   W->>B: $10.00 back
   W-->>L: refund.created
-  L->>L: refunds row (once per refund id), order → refunded, ledger refund −10.00
-  Note over P: Ledgerly keeps its $0.80 fee. The seller absorbs Whop's $0.72.
+  L->>L: one refund row, order refunded,<br/>ledger refund −10.00
+  Note over S,P: Ledgerly keeps the $0.80 fee.<br/>The seller absorbs Whop's $0.72.
 ```
 
 ### 2. Platform-collected sale + transfer (`collection_mode = platform`)
@@ -113,21 +113,21 @@ sequenceDiagram
   participant B as Buyer
   participant L as Ledgerly service
   participant W as Whop
-  participant P as Ledgerly's account (biz_platform)
-  participant S as Seller's account (biz_seller)
+  participant P as Ledgerly account
+  participant S as Seller account
 
-  L->>W: POST /checkout_configurations {account_id: biz_platform, plan{initial_price 10}}<br/>metadata {ledgerly_order_id, seller_external_id}
+  L->>W: create checkout on Ledgerly account<br/>price 10.00, metadata: seller
   B->>W: pays $10.00 + $0.83 sales tax
-  W->>P: +10.83 gross, −0.83 tax remitted, −0.97 fees = 9.03 (pending)
-  W-->>L: payment.succeeded (account_id = biz_platform)
-  L->>L: order → paid (in the webhook transaction)
-  Note over L: after the 2xx is sent (next/server after())
-  L->>W: GET /payments/PAY_ID/fees
-  L->>L: share = 10.00 − 0.75 processing − 0.80 platform = 8.45
-  L->>W: POST /transfers {origin: biz_platform, destination: biz_seller, 8.45}<br/>idempotence_key: order:ORDER:share
-  W->>S: +8.45 (available immediately, even before Ledgerly's sale settles)
-  W-->>L: transfer.completed ×2 (once per participant)
-  L->>L: seller_transfers → completed, ledger transfer_in +8.45 (once, keyed on transfer id)
+  W->>P: +10.83, −0.83 tax, −0.97 fees<br/>= 9.03 pending
+  W-->>L: payment.succeeded
+  L->>L: order paid (webhook transaction)
+  Note over L: after the 2xx response
+  L->>W: GET payment fee lines
+  L->>L: share = 10.00 − 0.75 processing<br/>− 0.80 Ledgerly = 8.45
+  L->>W: transfer 8.45 Ledgerly → seller<br/>key order:ID:share
+  W->>S: +8.45, available at once
+  W-->>L: transfer.completed (×2, one per side)
+  L->>L: transfer completed,<br/>ledger transfer_in +8.45 (once)
 ```
 
 `settlePlatformOrder` always pays **what is owed minus what was already sent**, keyed on the target amount. A missed or failed settlement is retried by `pnpm settle`; a corrected formula produces exactly one adjustment transfer (`order:<id>:share:to-845`).
