@@ -117,32 +117,48 @@ export async function createPlatformCheckout(raw: CheckoutInput) {
 /**
  * Seller's share of a platform-collected sale, at parity with a direct charge:
  * gross - Whop's processing fees on the payment - Ledgerly's 8%.
+ *
+ * Excluded: sales tax (collected from the buyer on top of the price and remitted, so it was
+ * never the seller's money) and the tax-service fee (a cost of Ledgerly being merchant of
+ * record; direct charges don't incur it).
  */
+const NOT_SELLER_COSTS = new Set(["application_fee", "sales_tax_remittance", "stripe_sales_tax_fee"]);
+
 export async function sellerShare(paymentId: string, gross: number, platformFeeAmount: number) {
   const fees = await whop().payments.listFees({ id: paymentId });
-  const whopFeeCents = fees.data
-    .filter((f) => f.origin !== "application_fee")
+  const sellerFeeCents = fees.data
+    .filter((f) => !NOT_SELLER_COSTS.has(f.origin) && !f.origin.includes("tax"))
     .reduce((sum, f) => sum + Math.round(Number(f.amount.amount) * 100), 0);
-  const shareCents = Math.round(gross * 100) - whopFeeCents - Math.round(platformFeeAmount * 100);
-  return { share: shareCents / 100, whopFees: whopFeeCents / 100 };
+  const shareCents = Math.round(gross * 100) - sellerFeeCents - Math.round(platformFeeAmount * 100);
+  return { share: shareCents / 100, sellerFees: sellerFeeCents / 100, fees: fees.data };
 }
 
-/** Pay the seller for a paid platform order. Idempotent per order. */
+/**
+ * Pay the seller what they're owed for a paid platform order, minus what's already been sent.
+ * Idempotent: the transfer key embeds the target total, so re-running at the same target never
+ * pays twice, and a corrected formula produces exactly one adjustment transfer.
+ */
 export async function settlePlatformOrder(orderId: string) {
-  const [order] = await sql()`select * from orders where id = ${orderId}`;
+  const db = sql();
+  const [order] = await db`select * from orders where id = ${orderId}`;
   if (!order || order.flow !== "platform") throw new Error(`order ${orderId} is not a platform order`);
   if (order.status !== "paid" || !order.whop_payment_id) return { skipped: `order is ${order.status}` };
 
-  const { share, whopFees } = await sellerShare(order.whop_payment_id, Number(order.amount), Number(order.platform_fee));
-  if (share <= 0) return { skipped: "nothing left for the seller after fees" };
+  const { share, sellerFees } = await sellerShare(order.whop_payment_id, Number(order.amount), Number(order.platform_fee));
+  const [{ sent }] = await db`
+    select coalesce(sum(amount), 0)::numeric as sent from seller_transfers
+    where order_id = ${order.id} and whop_transfer_id is not null`;
+  const dueCents = Math.round(share * 100) - Math.round(Number(sent) * 100);
+  if (dueCents <= 0) return { skipped: "seller already paid", share, sent: Number(sent) };
 
+  const first = Number(sent) === 0;
   const result = await transferToSeller({
     sellerExternalId: order.seller_external_id,
-    amount: share,
+    amount: dueCents / 100,
     currency: order.currency,
-    key: `order:${order.id}:share`,
+    key: first ? `order:${order.id}:share` : `order:${order.id}:share:to-${Math.round(share * 100)}`,
     purpose: "order_share",
     orderId: order.id,
   });
-  return { ...result, share, whopFees, platformFee: Number(order.platform_fee) };
+  return { ...result, share, sellerFees, platformFee: Number(order.platform_fee), alreadySent: Number(sent), sentNow: dueCents / 100 };
 }
