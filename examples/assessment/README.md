@@ -1,6 +1,6 @@
 # Assessment proof run
 
-The Whop Platforms FDE assessment's Part 1, run end to end in **production** with small real amounts. One script per step; each saves the real API responses to [`evidence/`](evidence) with personal data (names, emails, addresses, card digits) removed.
+The Whop Platforms FDE assessment's Part 1, run end to end in **production** with small real amounts. (The brief asked for the sandbox; Whop's sandbox doesn't support payouts or the embedded payout components, and Whop's team said to use production.) One script per step; each saves the real API responses to [`evidence/`](evidence) with personal data (names, emails, addresses, card digits) removed.
 
 These scripts are tied to the demo sellers below. For day-to-day operations use `pnpm ledgerly` (see the main [README](../../README.md#operating-it)).
 

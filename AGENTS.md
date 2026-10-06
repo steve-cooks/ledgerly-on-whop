@@ -13,12 +13,14 @@ Stack: Next.js 16 (App Router, route handlers) · TypeScript · `@whop/sdk` 2.x 
 ```bash
 pnpm install
 pnpm dev                     # local app (reads .env.local)
-pnpm typecheck && pnpm lint && pnpm test   # run all three before you finish; CI runs them plus pnpm build
+pnpm typecheck && pnpm lint && pnpm test   # run before you finish
+pnpm test:integration        # webhook route + money handlers on a throwaway Postgres (Docker)
+pnpm ledgerly smoke          # live checks against APP_URL that move no money
 pnpm ledgerly help           # operations CLI (reconcile, settle, import-sellers, reprocess, trace, …)
 supabase db push             # apply migrations (needs `supabase link` first)
 ```
 
-Tests need no secrets or network. Anything that calls Whop or the database is exercised through the CLI against a real environment, not in unit tests.
+Unit tests need nothing. Integration tests need Docker (they start their own Postgres) and stub Whop; CI runs both plus `pnpm build` on pushes to `main` and on pull requests. When you change a handler, add an integration test for the ordering, duplicate or retry case it must survive.
 
 ## Where things are
 
@@ -27,14 +29,17 @@ Tests need no secrets or network. Anything that calls Whop or the database is ex
 | Seller signup / onboarding links | `src/lib/onboarding.ts`, `src/app/api/sellers/route.ts` |
 | Checkout, the 8% fee, seller share, settlement | `src/lib/checkout.ts` (`platformFee`, `createCheckout`, `computeSellerShare`, `settlePlatformOrder`) |
 | Transfers to sellers | `src/lib/transfers.ts` |
-| Webhook intake (signature, inbox, transaction) | `src/app/api/webhooks/whop/route.ts` |
+| Webhook intake (signature) | `src/app/api/webhooks/whop/route.ts` |
+| Inbox, transaction, deferred events, replays | `src/lib/webhook-processor.ts` |
+| Subscribed events and version pin | `src/lib/webhook-setup.ts` (`pnpm ledgerly webhook:sync` applies changes) |
 | What each webhook event does | `src/lib/webhook-handlers.ts` (`handlers` map) |
 | Envelope parsing / which account an event belongs to | `src/lib/webhooks.ts` (`eventAccountId`) |
 | Reconciliation and payout repair | `src/lib/reconcile.ts` |
 | Hourly job (payout sync, reconcile, settle, alert) | `src/lib/ops-job.ts`, `src/app/api/cron/ops/route.ts`, `vercel.json` |
 | Bulk seller migration | `src/lib/import-sellers.ts` |
 | Seller payouts page (Whop Elements) | `src/app/sellers/[externalId]/payouts/`, token minting in `src/lib/wallet.ts` |
-| Seller auth (demo stand-in to replace) | `src/lib/seller-session.ts` (`currentSeller`) |
+| Seller / operator auth (demo stand-in to replace) | `src/lib/seller-session.ts` (`currentSeller`, `isOperator`) |
+| Error types and safe Whop error summaries | `src/lib/errors.ts` |
 | Admin API auth | `src/lib/admin-auth.ts` |
 | Env vars (validated lazily) | `src/lib/env.ts`, `.env.example` |
 | Schema | `supabase/migrations/*.sql` (add a new file; never edit an applied one) |
@@ -45,20 +50,21 @@ Tests need no secrets or network. Anything that calls Whop or the database is ex
 ## Invariants: don't break these
 
 1. **Money is integer cents in logic.** Convert with `Math.round(x * 100)` before comparing or summing; Whop returns decimal strings (`"10.00"`), takes decimal numbers, and ledger APIs use 1e-8 integers. Never compare floats.
-2. **Every Whop write is idempotent.** Pass a deterministic `idempotencyKey` (e.g. `ledgerly:checkout:<orderId>`) or `idempotence_key` for transfers. Whop replays a failed request's *error* for 24h, so a retry after fixing the cause needs a **new** key.
+2. **Every durable Whop write is idempotent.** Accounts, checkouts, transfers, refunds and webhooks get a deterministic `idempotencyKey` (e.g. `ledgerly:checkout:<orderId>`) or `idempotence_key` for transfers. Short-lived things (onboarding links, wallet tokens) are deliberately fresh each time. Whop replays a failed request's response for 24h: after a **definite** failure use a new key (transfers: `…:attempt-N`); after an **unknown** outcome, check first and retry with the same key. A key must always mean the same intent (`transferToSeller` refuses a different amount under a used key).
 3. **Webhook effects are keyed on Whop object ids, not the webhook id.** Whop sends near-duplicates (identical `payout.updated` bodies with different ids; `transfer.completed` once per participant). Ledger rows use `entry_key` (`payment:<id>:sale`, `transfer:<id>`, `payout:<id>`, …) with `on conflict do nothing`; refunds go through the `refunds` table.
-4. **State only moves forward.** Orders: `pending|failed → paid`, never back from `refunded`/`disputed`. Payouts: update only when the event timestamp is newer (`last_event_at`).
-5. **Handlers run inside the webhook's transaction and must not call Whop.** Anything that calls Whop happens after the 2xx (`after()` in the route) or in the ops job, and must itself be idempotent.
+4. **State only moves forward, guarded in SQL.** Put the allowed source states in the `UPDATE`'s `WHERE` (e.g. `payment.failed` only touches `status = 'pending'`); don't check in JS and then write. Orders never go back from `refunded`/`disputed` (except a won dispute → `paid`). Payouts update only when the event time is newer. Refunds and disputes lock the order row first.
+5. **Handlers run inside the webhook's transaction and must not call Whop.** Anything that calls Whop happens after the 2xx (`after()` in the route) or in the ops job, and must itself be idempotent. If an event's subject isn't known yet, throw `DeferredEvent`; don't silently return.
 6. **Handlers must be replay-safe.** `pnpm ledgerly reprocess <type>` re-runs them over stored events; running twice must change nothing.
-7. **Read the account from `account_id`, then `company_id`, then the object** (`eventAccountId`). Older or unpinned webhook payloads carry `company_id`.
-8. **Whop's `status` hides refunds and failures.** Use `substatus` (`refunded`, `failed`); see `paymentState` in `reconcile.ts`.
-9. **Never hand-compute Whop's fees.** Read them (`payments.listFees`, `amount_after_fees`). Only Ledgerly's own policy (8%, seller share) is computed here.
-10. **Embedded-UI tokens always pass explicit `scoped_actions`** and a short `expires_at` (`src/lib/wallet.ts`). Omitting scopes gives the browser every permission of the API key.
-11. **Secrets and personal data stay out of output.** Don't print API keys, webhook secrets or tokens. Webhook payloads contain names, card BIN/last4 and addresses; don't log them or commit them (`examples/assessment/scripts/_evidence.ts` has the redaction list).
+7. **Money only moves on confirmed state.** A transfer counts when `completed` (not when it has an id); a refund when `succeeded`; a payout reversal when funds are returned.
+8. **Read the account from `account_id`, then `company_id`, then the object** (`eventAccountId`). Older or unpinned webhook payloads carry `company_id`.
+9. **Whop's `status` hides refunds and failures.** Use `substatus` (`refunded`, `failed`); see `paymentState` in `reconcile.ts`.
+10. **Never hand-compute Whop's fees.** Read them (`payments.listFees`, `amount_after_fees`). Only Ledgerly's own policy (8%, seller share) is computed here.
+11. **Embedded-UI tokens always pass explicit `scoped_actions`** and a short `expires_at` (`src/lib/wallet.ts`). Omitting scopes gives the browser every permission of the API key.
+12. **Secrets and personal data stay out of output.** Don't print API keys, webhook secrets or tokens. Webhook payloads contain names, card BIN/last4 and addresses; don't log them or commit them (`examples/assessment/scripts/_evidence.ts` has the redaction list).
 
 ## How to…
 
-**Handle a new webhook event**: add it to the webhook's `events` (Whop dashboard or `webhooks.update`), add a `Handler` to `handlers` in `src/lib/webhook-handlers.ts` that writes only to the DB with business-keyed `on conflict` inserts, then add a check to `reconcile.ts` if it moves money.
+**Handle a new webhook event**: add it to `WEBHOOK_EVENTS` in `src/lib/webhook-setup.ts` and run `pnpm ledgerly webhook:sync`; add a `Handler` to `handlers` in `src/lib/webhook-handlers.ts` that writes only to the DB (business-keyed `on conflict` inserts, guarded updates, `DeferredEvent` if the subject is unknown); add an integration test; add a check to `reconcile.ts` if it moves money.
 
 **Add an admin endpoint**: create `src/app/api/<name>/route.ts`, call `requireAdmin(req)` first, validate the body with Zod, wrap in `try/catch` → `errorResponse(err)`. Document it in the README's HTTP API table.
 
@@ -71,7 +77,7 @@ Tests need no secrets or network. Anything that calls Whop or the database is ex
 ## Whop facts that surprise people
 
 - Inline checkout `plan.application_fee_amount` and `plan.product` are legacy fields not in the SDK types; `product.external_identifier` is required with them. They're spread in with a cast in `checkout.ts`.
-- Account links need the full `payout:*` permission family on the API key; Whop reports one missing scope per failed call.
+- Account links need ten `payout:*` permissions on the API key (listed in the README); Whop reports one missing scope per failed call.
 - Refunds on direct charges debit the seller's *available* balance (pending sale funds don't count); the application fee is not reversed.
 - A `currency: "usd"` transfer is paid from whatever USD-equivalent balance the sender has: from a USDT-funded balance it moves USDT, and the transfer object still says `usd`. Check per-currency balances with `GET /ledger_accounts/{id}` (careful: that response also contains the owner's personal data).
 - Whop may not send a webhook for a payout's final state; `reconcile --fix` covers it.
