@@ -91,18 +91,17 @@ pnpm ledgerly import-sellers sellers.csv                # create accounts + onbo
 
 ## Decisions for Ledgerly before full launch
 
-These came out of running real money through Whop. Most need a business decision; 9 and the code items in the checklist below are engineering work.
+These came out of running real money through Whop. Most need a business decision; 8 (currencies) and the code items in the checklist below are engineering work.
 
 1. **What sellers receive (USD vs USDT).** In the test run Ledgerly's balance was topped up with a USDT crypto deposit (it lands in seconds; a bank deposit takes 1–3 business days). Transfers requested in `usd` were then paid out of that USDT, so sellers received USDT, while the API still reported `usd`. Decide which asset sellers should be paid in, fund Ledgerly's balance accordingly (bank deposit for USD), and confirm with Whop how transfers choose between USD and USDT when both are available.
 2. **Refunds before settlement.** A seller can't refund a sale until its funds settle (about 1–2 days), and Whop's fees aren't returned. Today Ledgerly fronts the refund with a transfer. Decide whether to keep that, and how to recover advances from sellers' later sales (not automated yet).
 3. **Who pays processing fees.** Direct sellers pay Whop's fees. Platform-collected sellers are paid under the same policy (Whop's processing fees and the 8% come off their share). Ledgerly absorbs the sales-tax service fee on its own sales.
 4. **Sales tax.** When Ledgerly is the merchant (platform-collected sales), Whop adds and remits sales tax. On direct charges to individual sellers it didn't. Confirm the tax position with Whop and your advisor.
-5. **8% as a checkout fee vs an account markup.** Today each checkout sets `application_fee_amount`. Whop can instead apply an 8% payment markup to every connected account automatically, which removes a per-checkout step.
-6. **Instant payouts.** Ledgerly charges +$0.50 on instant withdrawals, but Whop hasn't enabled instant payouts on the test seller yet. Ask Whop how sellers qualify.
-7. **When platform-collected sellers get paid.** Today their share is transferred into their Whop balance seconds after the buyer pays, and they withdraw to their bank whenever they choose (the hourly job only catches up on anything missed). That's fast for sellers, but a refund or chargeback after that is Ledgerly's to recover. The alternative is escrow: hold the share until the refund window passes (say 7–14 days). That's a small change: stop settling right after payment and have the hourly job settle only orders older than the window.
-8. **Automatic payouts to sellers' banks.** Sellers withdraw themselves today. Whop also has automatic withdrawals, and they work on connected accounts: in the seller's Whop dashboard, Balances → USD → ⋯ → **Set up auto-withdrawals** (minimum balance to keep, daily or other frequency, payout method; $2.50 per standard bank payout). There is no API for it, so each seller turns it on themselves; Ledgerly can't do it in code. Decide whether to tell sellers about it, or ask Whop for a platform-level default.
-9. **Currencies.** Checkouts are USD-only today. Supporting EUR and BRL sellers means settling and reconciling per currency (the reconciliation already compares balances per currency) and running a small real sale in each before onboarding those sellers.
-10. **Sellers who must never take payments directly.** This service never gives them a direct checkout, but their Whop accounts can still accept card payments (Whop's API has no way to turn that off). If that must be guaranteed platform-wide, ask Whop to restrict those accounts.
+5. **Instant payouts.** Ledgerly charges +$0.50 on instant withdrawals, but Whop hasn't enabled instant payouts on the test seller yet. Ask Whop how sellers qualify.
+6. **When platform-collected sellers get paid.** Today their share is transferred into their Whop balance seconds after the buyer pays, and they withdraw to their bank whenever they choose (the hourly job only catches up on anything missed). That's fast for sellers, but a refund or chargeback after that is Ledgerly's to recover. The alternative is escrow: hold the share until the refund window passes (say 7–14 days). That's a small change: stop settling right after payment and have the hourly job settle only orders older than the window.
+7. **Automatic payouts to sellers' banks.** Sellers withdraw themselves today. Whop also has automatic withdrawals, and they work on connected accounts: in the seller's Whop dashboard, Balances → USD → ⋯ → **Set up auto-withdrawals** (minimum balance to keep, daily or other frequency, payout method; $2.50 per standard bank payout). There is no API for it, so each seller turns it on themselves; Ledgerly can't do it in code. Decide whether to tell sellers about it, or ask Whop for a platform-level default.
+8. **Currencies.** Checkouts are USD-only today. Supporting EUR and BRL sellers means settling and reconciling per currency (the reconciliation already compares balances per currency) and running a small real sale in each before onboarding those sellers.
+9. **Sellers who must never take payments directly.** This service never gives them a direct checkout, but their Whop accounts can still accept card payments (Whop's API has no way to turn that off). If that must be guaranteed platform-wide, ask Whop to restrict those accounts.
 
 ## Go-live checklist
 
@@ -112,6 +111,6 @@ These came out of running real money through Whop. Most need a business decision
 - [ ] Define retention for the webhook inbox (`webhook_events`): it stores raw payloads, which include buyers' names and card digits.
 - [ ] Set `ALERT_WEBHOOK_URL` and confirm an alert arrives (break a test seller's ledger, run `/api/cron/ops`).
 - [ ] Rotate every secret created during the build (see the runbook) and keep keys out of chat and tickets.
-- [ ] Decide items 1–4 and 7 above.
+- [ ] Decide items 1–4 and 6 above.
 - [ ] Before volume grows, give the hourly reconciliation a time window: it reads Ledgerly's full payment history on every run.
 - [ ] Migrate sellers in batches, watching the hourly ops run.

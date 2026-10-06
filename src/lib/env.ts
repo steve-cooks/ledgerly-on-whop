@@ -18,9 +18,8 @@ const schema = z.object({
   WHOP_OAUTH_CLIENT_ID: z.string().startsWith("app_").optional(),
   // Its client secret (the app's OAuth tab, "Confidential" mode). Never sent to the browser.
   WHOP_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
-  // The seller-facing "Ledgerly" Whop app: installed on sellers' accounts so it can send them
-  // reminders (Whop only lets apps notify accounts they're installed on). The key is the app's
-  // client secret, which is also its API key.
+  // The seller-facing "Ledgerly" Whop app, used for sellers' "Continue with Whop" sign-in. The
+  // key is the app's OAuth client secret.
   WHOP_SELLER_APP_ID: z.string().startsWith("app_").optional(),
   WHOP_SELLER_APP_KEY: z.string().min(1).optional(),
   // Supabase Auth (seller sign-in on the demo marketplace) and Storage (product files).
