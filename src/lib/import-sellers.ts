@@ -1,25 +1,21 @@
 import { sql } from "./db";
 import { whopErrorSummary } from "./errors";
-import { onboardSeller, SellerInput } from "./onboarding";
+import type { ImportResult } from "./import-csv";
+import { ensureSellerAccount, onboardSeller, SellerInput, sellerConflicts } from "./onboarding";
+
+export { toCsv, type ImportResult } from "./import-csv";
 
 /**
  * Bulk migration of Ledgerly's existing sellers onto Whop.
  *
  * Input CSV columns: external_id, email, country, title (optional), collection_mode (optional:
  * direct | platform). Every row goes through onboardSeller, which is idempotent, so a crashed
- * or interrupted import is resumed by running the same file again.
+ * or interrupted import is resumed by running the same file again. Used by the CLI
+ * (`pnpm ledgerly import-sellers`) and the operator console (/import).
  */
 
-export type ImportRow = { line: number; input?: SellerInput; error?: string };
-export type ImportResult = {
-  line: number;
-  external_id: string;
-  status: "created" | "existing" | "would_create" | "would_skip" | "error";
-  account_id?: string;
-  onboarding_url?: string;
-  expires_at?: string;
-  error?: string;
-};
+/** A parsed row. externalId and email are the raw cells, kept for reporting invalid rows. */
+export type ImportRow = { line: number; input?: SellerInput; error?: string; externalId?: string; email?: string };
 
 /** Minimal RFC 4180 CSV parser: quoted fields, escaped quotes, commas and newlines in quotes. */
 export function parseCsv(text: string): string[][] {
@@ -56,6 +52,9 @@ export function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some((f) => f.trim() !== ""));
 }
 
+/** SellerInput field → CSV column, for error messages. */
+const COLUMN: Record<string, string> = { externalId: "external_id", email: "email", country: "country", title: "title", collectionMode: "collection_mode" };
+
 /** Parse and validate every row up front, so a bad file fails before any account is created. */
 export function parseSellersCsv(text: string): ImportRow[] {
   const [header, ...body] = parseCsv(text);
@@ -67,6 +66,7 @@ export function parseSellersCsv(text: string): ImportRow[] {
   return body.map((cells, i) => {
     const line = i + 2;
     const get = (name: string) => cells[cols.indexOf(name)]?.trim() || undefined;
+    const raw = { line, externalId: get("external_id"), email: get("email") };
     const parsed = SellerInput.safeParse({
       externalId: get("external_id"),
       email: get("email"),
@@ -75,11 +75,11 @@ export function parseSellersCsv(text: string): ImportRow[] {
       collectionMode: get("collection_mode"),
     });
     if (!parsed.success) {
-      return { line, error: parsed.error.issues.map((x) => `${x.path.join(".")}: ${x.message}`).join("; ") };
+      return { ...raw, error: parsed.error.issues.map((x) => `${COLUMN[String(x.path[0])] ?? x.path.join(".")} ${x.message}`).join("; ") };
     }
-    if (seen.has(parsed.data.externalId)) return { line, error: `duplicate external_id ${parsed.data.externalId}` };
+    if (seen.has(parsed.data.externalId)) return { ...raw, error: `duplicate external_id ${parsed.data.externalId}` };
     seen.add(parsed.data.externalId);
-    return { line, input: parsed.data };
+    return { ...raw, input: parsed.data };
   });
 }
 
@@ -98,58 +98,68 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
   }
 }
 
+/**
+ * Import parsed rows. A dry run calls nothing and reports would_create / would_skip, or an error
+ * for a row that conflicts with the seller already stored under its external_id.
+ * `links: false` skips minting onboarding links (they expire in about an hour; the seller's
+ * status page mints a fresh one when they continue verification).
+ */
 export async function importSellers(
   rows: ImportRow[],
-  opts: { dryRun?: boolean; concurrency?: number; onResult?: (r: ImportResult) => void } = {},
+  opts: { dryRun?: boolean; concurrency?: number; links?: boolean; onResult?: (r: ImportResult) => void } = {},
 ) {
   const results: ImportResult[] = [];
   const emit = (r: ImportResult) => {
     results.push(r);
     opts.onResult?.(r);
   };
-  const existing = new Set(
-    (await sql()`select external_id from sellers where whop_account_id is not null`).map((r) => r.external_id as string),
+  const ids = rows.flatMap((r) => (r.input ? [r.input.externalId] : []));
+  const existing = new Map(
+    (
+      await sql()`
+        select external_id, email, country, collection_mode, whop_account_id
+        from sellers where external_id = any(${ids}::text[])`
+    ).map((r) => [r.external_id as string, r as unknown as { email: string; country: string; collection_mode: string; whop_account_id: string | null }]),
   );
 
   const queue = [...rows];
   const worker = async () => {
     for (let row = queue.shift(); row; row = queue.shift()) {
-      const external_id = row.input?.externalId ?? "";
+      const base = { line: row.line, external_id: row.input?.externalId ?? row.externalId ?? "", email: row.input?.email ?? row.email };
       if (!row.input) {
-        emit({ line: row.line, external_id, status: "error", error: row.error });
+        emit({ ...base, status: "error", error: row.error });
         continue;
       }
       if (opts.dryRun) {
-        emit({ line: row.line, external_id, status: existing.has(external_id) ? "would_skip" : "would_create" });
+        const stored = existing.get(row.input.externalId);
+        const conflicts = stored ? sellerConflicts(stored, SellerInput.parse(row.input)) : [];
+        if (conflicts.length) emit({ ...base, status: "error", error: `already exists with a different ${conflicts.join(", ")}` });
+        else emit({ ...base, status: stored?.whop_account_id ? "would_skip" : "would_create", account_id: stored?.whop_account_id ?? undefined });
         continue;
       }
       try {
-        const r = await withRetry(() => onboardSeller(row.input!));
-        emit({
-          line: row.line,
-          external_id,
-          status: r.created ? "created" : "existing",
-          account_id: r.accountId,
-          onboarding_url: r.onboardingUrl,
-          expires_at: r.expiresAt ?? undefined,
-        });
+        const input = row.input;
+        if (opts.links === false) {
+          const r = await withRetry(() => ensureSellerAccount(input));
+          emit({ ...base, status: r.created ? "created" : "existing", account_id: r.accountId });
+        } else {
+          const r = await withRetry(() => onboardSeller(input));
+          emit({
+            ...base,
+            status: r.created ? "created" : "existing",
+            account_id: r.accountId,
+            onboarding_url: r.onboardingUrl,
+            expires_at: r.expiresAt ?? undefined,
+          });
+        }
       } catch (err) {
         // Only Whop's status, code and message: the full response body can echo personal data.
         const summary = whopErrorSummary(err);
         const error = summary ? `${summary.status} ${summary.code ?? summary.type ?? ""} ${summary.message ?? ""}`.replace(/\s+/g, " ").trim() : (err as Error).message;
-        emit({ line: row.line, external_id, status: "error", error: error.slice(0, 300) });
+        emit({ ...base, status: "error", error: error.slice(0, 300) });
       }
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, opts.concurrency ?? 3) }, worker));
   return results.sort((a, b) => a.line - b.line);
-}
-
-export function toCsv(results: ImportResult[]) {
-  const cols = ["line", "external_id", "status", "account_id", "onboarding_url", "expires_at", "error"] as const;
-  const esc = (v: unknown) => {
-    const s = v == null ? "" : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  return [cols.join(","), ...results.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n") + "\n";
 }

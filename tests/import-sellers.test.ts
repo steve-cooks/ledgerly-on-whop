@@ -30,6 +30,8 @@ describe("parseSellersCsv", () => {
       [6, "s4", "ok"],
     ]);
     expect(rows[0].input).toMatchObject({ country: "US", collectionMode: "direct" }); // normalized + defaulted
+    expect(rows[1].error).toBe("email isn't a valid email address");
+    expect(rows[2].error).toBe("country must be a 2-letter country code, like US");
     expect(rows[3].error).toMatch(/duplicate external_id s1/);
   });
 
