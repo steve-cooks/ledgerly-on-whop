@@ -1,16 +1,16 @@
 // Part 1 · Step 2: read the onboarded seller back and diff against the pre-onboarding snapshot.
-//   pnpm tsx scripts/part1/02-onboarding-diff.ts seller_us_mira
-import "../_setup";
+//   pnpm tsx examples/assessment/scripts/02-onboarding-diff.ts seller_us_mira
+import "../../../scripts/_setup";
 import { readFileSync } from "node:fs";
 import { whop } from "@/lib/whop";
-import { saveEvidence } from "../_evidence";
-import { SELLERS } from "../sellers";
+import { saveEvidence } from "./_evidence";
+import { SELLERS } from "./sellers";
 
 const FIELDS = ["verification", "required_actions", "capabilities"] as const;
 
 async function main() {
   const seller = SELLERS.find((s) => s.externalId === process.argv[2]) ?? SELLERS[0];
-  const before = JSON.parse(readFileSync(`evidence/01-accounts/${seller.externalId}.json`, "utf8"));
+  const before = JSON.parse(readFileSync(`examples/assessment/evidence/01-accounts/${seller.externalId}.json`, "utf8"));
   const accountId: string = before.id;
   const after = await whop().accounts.retrieve({ id: accountId });
 

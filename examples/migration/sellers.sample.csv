@@ -1,0 +1,8 @@
+external_id,email,country,title,collection_mode
+seller_us_mira,mira@example.com,US,Mira Presets,direct
+seller_fr_atelier,atelier@example.com,FR,"Atelier Typo, Paris",direct
+seller_jp_kumo,kumo@example.com,jp,Kumo Brushes,
+seller_br_samba,samba@example.com,BR,Samba Loops,platform
+seller_bad_email,not-an-email,US,Broken Row,direct
+seller_bad_country,ok@example.com,USA,Broken Country,direct
+seller_fr_atelier,dupe@example.com,FR,Duplicate Row,direct

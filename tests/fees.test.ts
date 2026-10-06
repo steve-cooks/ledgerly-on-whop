@@ -24,7 +24,7 @@ describe("platformFee (Ledgerly's 8%)", () => {
 });
 
 describe("computeSellerShare (transfer flow, parity with direct charges)", () => {
-  // Real fee lines from evidence/03-direct-charge/after-payment.json ($10 direct charge).
+  // Real fee lines from examples/assessment/evidence/03-direct-charge/after-payment.json ($10 direct charge).
   const directFees = [
     { origin: "application_fee", amount: { amount: "0.80" } },
     { origin: "payment_processing_fixed_fee", amount: { amount: "0.30" } },
@@ -32,7 +32,7 @@ describe("computeSellerShare (transfer flow, parity with direct charges)", () =>
     { origin: "orchestration_percentage_fee", amount: { amount: "0.08" } },
     { origin: "stripe_radar_fee", amount: { amount: "0.07" } },
   ];
-  // Real fee lines from evidence/03-transfer/after-payment.json ($10 + $0.83 tax, Ledgerly is MoR).
+  // Real fee lines from examples/assessment/evidence/03-transfer/after-payment.json ($10 + $0.83 tax, Ledgerly is MoR).
   const platformFees = [
     { origin: "sales_tax_remittance", amount: { amount: "0.83" } },
     { origin: "payment_processing_fixed_fee", amount: { amount: "0.30" } },

@@ -1,10 +1,10 @@
 // Part 1 · Step 5b: fire a test event, replay a real delivery (same id and regenerated id),
 // and suspend a connected account.
-//   pnpm tsx scripts/part1/05b-webhook-ops.ts
-import "../_setup";
+//   pnpm tsx examples/assessment/scripts/05b-webhook-ops.ts
+import "../../../scripts/_setup";
 import { whop } from "@/lib/whop";
 import { sql } from "@/lib/db";
-import { capture, saveEvidence } from "../_evidence";
+import { capture, saveEvidence } from "./_evidence";
 
 const NESTED_LEFTOVER = "biz_imW7SL959LNYDA"; // created by the parent_company_id experiment in step 1
 

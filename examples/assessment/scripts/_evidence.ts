@@ -1,6 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+export const EVIDENCE_DIR = "examples/assessment/evidence";
+
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
 // Personal fields that can appear in Whop payloads (buyer, payout recipient, KYC).
@@ -23,7 +25,7 @@ export function redact<T>(value: T): T {
 }
 
 export function saveEvidence(name: string, value: unknown) {
-  const path = join("evidence", `${name}.json`);
+  const path = join(EVIDENCE_DIR, `${name}.json`);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(redact(value), null, 2) + "\n");
   return path;

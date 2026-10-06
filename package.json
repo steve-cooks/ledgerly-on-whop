@@ -9,9 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "reconcile": "tsx scripts/reconcile.ts",
-    "onboarding-link": "tsx scripts/onboarding-link.ts",
-    "settle": "tsx scripts/settle-orders.ts"
+    "ledgerly": "tsx cli/ledgerly.ts"
   },
   "dependencies": {
     "@whop/elements": "^1.8.0",

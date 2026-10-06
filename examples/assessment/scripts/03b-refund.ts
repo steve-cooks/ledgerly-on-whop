@@ -1,8 +1,8 @@
 // Part 1 · Step 3b: full refund of the direct charge, then trace where the fee went.
-//   pnpm tsx scripts/part1/03b-refund.ts pay_xxx
-import "../_setup";
+//   pnpm tsx examples/assessment/scripts/03b-refund.ts pay_xxx
+import "../../../scripts/_setup";
 import { whop } from "@/lib/whop";
-import { saveEvidence } from "../_evidence";
+import { saveEvidence } from "./_evidence";
 
 async function main() {
   const id = process.argv[2];

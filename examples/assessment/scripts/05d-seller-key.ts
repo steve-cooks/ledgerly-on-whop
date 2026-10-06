@@ -1,9 +1,9 @@
 // Part 1 · Step 5d: a per-seller API key, created on Mira's connected account. Shows what it can
 // and can't reach, and runs the real "create an account under a connected account" attempt.
-//   pnpm tsx scripts/part1/05d-seller-key.ts
-import "../_setup";
+//   pnpm tsx examples/assessment/scripts/05d-seller-key.ts
+import "../../../scripts/_setup";
 import { WhopClient } from "@whop/sdk";
-import { capture, saveEvidence } from "../_evidence";
+import { capture, saveEvidence } from "./_evidence";
 
 const MIRA = "biz_9ejVCcyqXnAYeV";
 const VORLAGE = "biz_Vo8bzz6O0bWPcR";

@@ -1,5 +1,5 @@
-// Settle (or true-up) one platform order: pnpm tsx scripts/settle-order.ts <order-uuid> [evidence-name]
-import "./_setup";
+// Settle (or true-up) one platform order: pnpm tsx examples/assessment/scripts/settle-order.ts <order-uuid> [evidence-name]
+import "../../../scripts/_setup";
 import { sql } from "@/lib/db";
 import { settlePlatformOrder } from "@/lib/checkout";
 import { saveEvidence } from "./_evidence";

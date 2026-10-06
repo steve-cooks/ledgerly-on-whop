@@ -56,7 +56,7 @@ export async function POST(request: Request) {
 
   // Platform-collected sale just got paid: pay the seller's share right away from Ledgerly's
   // balance. Runs after the 2xx so Whop never waits on (or retries because of) the transfer;
-  // settlePlatformOrder is idempotent per order, and scripts/settle-orders.ts sweeps misses.
+  // settlePlatformOrder is idempotent per order, and `pnpm ledgerly settle` sweeps misses.
   if (outcome === "processed" && event.type === "payment.succeeded") {
     const [order] = await sql()`
       select id from orders where whop_payment_id = ${String(event.data.id)} and flow = 'platform' and status = 'paid'`;

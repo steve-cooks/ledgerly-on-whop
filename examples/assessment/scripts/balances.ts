@@ -1,6 +1,6 @@
 // Snapshot balances for Ledgerly + sellers (accounts endpoint only: no owner PII).
-//   pnpm tsx scripts/balances.ts <evidence-name>
-import "./_setup";
+//   pnpm tsx examples/assessment/scripts/balances.ts <evidence-name>
+import "../../../scripts/_setup";
 import { whop } from "@/lib/whop";
 import { saveEvidence } from "./_evidence";
 import { SELLERS } from "./sellers";

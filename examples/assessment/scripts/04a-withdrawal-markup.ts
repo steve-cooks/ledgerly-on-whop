@@ -1,8 +1,8 @@
 // Part 1 · Step 4a: Ledgerly charges +$0.50 on instant (RTP) withdrawals, for every seller.
-//   pnpm tsx scripts/part1/04a-withdrawal-markup.ts
-import "../_setup";
+//   pnpm tsx examples/assessment/scripts/04a-withdrawal-markup.ts
+import "../../../scripts/_setup";
 import { whop } from "@/lib/whop";
-import { saveEvidence } from "../_evidence";
+import { saveEvidence } from "./_evidence";
 
 async function main() {
   const platform = process.env.WHOP_PLATFORM_ACCOUNT_ID!;

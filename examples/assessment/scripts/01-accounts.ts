@@ -1,12 +1,12 @@
 // Part 1 · Step 1: platform + connected accounts.
-//   pnpm tsx scripts/part1/01-accounts.ts
-import "../_setup";
+//   pnpm tsx examples/assessment/scripts/01-accounts.ts
+import "../../../scripts/_setup";
 import { WhopClient } from "@whop/sdk";
 import { onboardSeller } from "@/lib/onboarding";
 import { whop } from "@/lib/whop";
 import { sql } from "@/lib/db";
-import { capture, saveEvidence } from "../_evidence";
-import { SELLERS } from "../sellers";
+import { capture, saveEvidence } from "./_evidence";
+import { SELLERS } from "./sellers";
 
 async function main() {
   const platformId = process.env.WHOP_PLATFORM_ACCOUNT_ID!;

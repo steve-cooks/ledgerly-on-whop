@@ -1,6 +1,6 @@
 // Step 5 evidence: the webhook config plus one real (most recent) payload per subscribed event type.
-//   pnpm tsx scripts/export-webhook-evidence.ts
-import "./_setup";
+//   pnpm tsx examples/assessment/scripts/export-webhook-evidence.ts
+import "../../../scripts/_setup";
 import { sql } from "@/lib/db";
 import { saveEvidence } from "./_evidence";
 

@@ -1,11 +1,11 @@
 // Part 1 · Step 3c: Ledgerly fronts the refund. Transfer the payment amount to the seller,
 // then refund the buyer from the seller's (now funded) balance.
-//   pnpm tsx scripts/part1/03c-fund-refund.ts pay_xxx
-import "../_setup";
+//   pnpm tsx examples/assessment/scripts/03c-fund-refund.ts pay_xxx
+import "../../../scripts/_setup";
 import { transferToSeller } from "@/lib/transfers";
 import { whop } from "@/lib/whop";
 import { sql } from "@/lib/db";
-import { capture, saveEvidence } from "../_evidence";
+import { capture, saveEvidence } from "./_evidence";
 
 async function main() {
   const paymentId = process.argv[2];

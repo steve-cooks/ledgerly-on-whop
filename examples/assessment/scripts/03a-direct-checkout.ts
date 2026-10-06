@@ -1,9 +1,9 @@
 // Part 1 · Step 3a: direct charge on the US seller with Ledgerly's 8% application fee.
-//   pnpm tsx scripts/part1/03a-direct-checkout.ts
-import "../_setup";
+//   pnpm tsx examples/assessment/scripts/03a-direct-checkout.ts
+import "../../../scripts/_setup";
 import { createDirectCheckout } from "@/lib/checkout";
 import { sql } from "@/lib/db";
-import { capture, saveEvidence } from "../_evidence";
+import { capture, saveEvidence } from "./_evidence";
 
 async function main() {
   const order = await createDirectCheckout({

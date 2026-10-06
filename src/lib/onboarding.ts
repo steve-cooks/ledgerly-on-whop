@@ -62,3 +62,15 @@ export async function onboardSeller(raw: SellerInput) {
 
   return { externalId: input.externalId, accountId, created, onboardingUrl: link.url, expiresAt: link.expires_at };
 }
+
+/** A fresh onboarding link for a seller we've already onboarded (never creates an account). */
+export async function freshOnboardingLink(externalId: string) {
+  const [seller] = await sql()`select * from sellers where external_id = ${externalId}`;
+  if (!seller) throw new Error(`unknown seller ${externalId}`);
+  return onboardSeller({
+    externalId: seller.external_id,
+    email: seller.email,
+    country: seller.country,
+    collectionMode: seller.collection_mode,
+  });
+}

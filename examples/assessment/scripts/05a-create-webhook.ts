@@ -1,10 +1,10 @@
 // Part 1 · Step 5a: one platform webhook that also receives connected-account events.
 // Writes the signing secret to .env.local (never prints it).
-//   pnpm tsx scripts/part1/05a-create-webhook.ts
-import "../_setup";
+//   pnpm tsx examples/assessment/scripts/05a-create-webhook.ts
+import "../../../scripts/_setup";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { whop } from "@/lib/whop";
-import { saveEvidence } from "../_evidence";
+import { saveEvidence } from "./_evidence";
 
 const EVENTS = [
   "payment.succeeded",
