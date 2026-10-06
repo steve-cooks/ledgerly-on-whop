@@ -1,0 +1,64 @@
+{
+  "order": {
+    "id": "641c0fd2-975f-467d-9b9f-ace89543293e",
+    "title": "Golden Hour Preset Pack",
+    "flow": "platform",
+    "amount": "10.00",
+    "platform_fee": "0.80",
+    "seller_share": "8.45",
+    "status": "paid",
+    "request_key": "assessment-same-item-1"
+  },
+  "payment": {
+    "id": "pay_dyRnmqYVRjzFxt",
+    "account_id": "biz_3iFse5N7RWo86f",
+    "total": {
+      "currency": "usd",
+      "amount": "10.83",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "amount_after_fees": {
+      "currency": "usd",
+      "amount": "9.03",
+      "decimals": 2,
+      "display_decimals": 2
+    }
+  },
+  "fees": [
+    {
+      "origin": "sales_tax_remittance",
+      "amount": "0.83"
+    },
+    {
+      "origin": "payment_processing_fixed_fee",
+      "amount": "0.30"
+    },
+    {
+      "origin": "payment_processing_percentage_fee",
+      "amount": "0.29"
+    },
+    {
+      "origin": "stripe_sales_tax_fee",
+      "amount": "0.22"
+    },
+    {
+      "origin": "orchestration_percentage_fee",
+      "amount": "0.09"
+    },
+    {
+      "origin": "stripe_radar_fee",
+      "amount": "0.07"
+    }
+  ],
+  "transfers": [
+    {
+      "idempotence_key": "order:641c0fd2-975f-467d-9b9f-ace89543293e:share",
+      "amount": "8.45",
+      "status": "completed",
+      "whop_status": "succeeded",
+      "whop_transfer_id": "ctt_7LOIGygo28FVM6",
+      "purpose": "order_share"
+    }
+  ]
+}

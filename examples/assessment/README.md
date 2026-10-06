@@ -15,6 +15,7 @@ These scripts are tied to the demo sellers below. For day-to-day operations use 
 | Leftover from the `parent_company_id` test, suspended | `biz_imW7SL959LNYDA` |
 | Direct charge → refund | `pay_9pKP6wPzCIIGKf` → `rf_orWZqAstlPVIT77` (refund funded by `ctt_OO5NkD4qqOKBjp`) |
 | Platform sale → seller share + true-up | `pay_uTqVCEQAnsGkcp` → `ctt_vVfORKght2JL9h` + `ctt_EIx63sdXPnpfwp` |
+| **Same item** (Golden Hour Preset Pack) on Ledgerly's account → Batida's share | `pay_dyRnmqYVRjzFxt` → `ctt_7LOIGygo28FVM6` ($8.45, order `641c0fd2…`, request key `assessment-same-item-1`) |
 | Embedded-UI withdrawal | `wdrl_kjhEtb6Vfwcuy` ($10, $2.50 fee) |
 | Declined payment (real `payment.failed`) | `pay_yJ5U8t8klXTRxK` |
 | Webhook | `hook_mr4wbDzKhiXW5` |
@@ -28,6 +29,7 @@ These scripts are tied to the demo sellers below. For day-to-day operations use 
 | 3 · Direct charge with application fee | [`03a-direct-checkout.ts`](scripts/03a-direct-checkout.ts) | [`03-direct-charge/`](evidence/03-direct-charge) |
 | 3 · Refund (refused, then funded by Ledgerly) | [`03b-refund.ts`](scripts/03b-refund.ts), [`03c-fund-refund.ts`](scripts/03c-fund-refund.ts) | same |
 | 3 · Platform-collected sale + transfer | [`03d-platform-checkout.ts`](scripts/03d-platform-checkout.ts), [`settle-order.ts`](scripts/settle-order.ts) | [`03-transfer/`](evidence/03-transfer) |
+| 3 · Same item as the direct charge, sold on Ledgerly's account | `pnpm ledgerly checkout …` + [`03e-same-item-transfer.ts`](scripts/03e-same-item-transfer.ts) | [`03-transfer/same-item.json`](evidence/03-transfer/same-item.json) |
 | 4 · Withdrawal-rail markup (+$0.50 instant) | [`04a-withdrawal-markup.ts`](scripts/04a-withdrawal-markup.ts) | [`04-payouts/`](evidence/04-payouts) |
 | 4 · Payout advance for the recorded withdrawal | [`04b-payout-advance.ts`](scripts/04b-payout-advance.ts) | same |
 | 5 · Platform webhook (8 events, child accounts, pinned) | [`05a-create-webhook.ts`](scripts/05a-create-webhook.ts) | [`05-webhooks/webhook.json`](evidence/05-webhooks/webhook.json) |
@@ -44,5 +46,5 @@ The embedded payouts recording (Seller Hub withdrawal) is part of the submission
 - **Nested account**: a seller's own key gets `400 "A connected account cannot create its own connected accounts"`.
 - **Onboarding**: `verification.individual` → `approved`; `verify_identity` cleared; `standard_payout`, `crypto_payout`, `transfer` → `active`. Card payments were already active before KYC.
 - **Direct charge, $10**: seller nets $8.48 (−$0.72 Whop fees, −$0.80 Ledgerly); Ledgerly +$0.80. Refund first refused (`not_enough_balance`, funds pending); after Ledgerly transferred $10 it succeeded. The $0.80 application fee was not reversed.
-- **Platform sale, $10 + $0.83 tax**: seller share $8.45 at parity with a direct charge (after fixing a formula bug that subtracted tax: $7.40 + $1.05 true-up).
+- **Platform sale, $10 + $0.83 tax**: seller share $8.45 under the same fee policy as a direct charge (the first sale exposed a formula bug that subtracted tax: $7.40 + $1.05 true-up). The brief's "same item" was then sold again on Ledgerly's account with the hardened code: share computed, stored and transferred once ($8.45).
 - **Webhooks**: 7 of 8 event types from real activity; `dispute.created` from Whop's test endpoint. Replays are deduplicated; payout state is forward-only; a missing completion webhook is repaired by reconciliation.
