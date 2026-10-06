@@ -9,7 +9,9 @@ Ledgerly is a marketplace for creators' digital goods: 3,000 sellers in 40 count
 - webhooks are processed **exactly once**, across retries, replays and restarts
 - a **reconciliation job** proves Ledgerly's books match Whop's
 
-It runs in production at <https://ledgerly-whop.vercel.app> (Next.js on Vercel, Postgres on Supabase). Everything here was exercised with real money; the raw API responses are in [`evidence/`](evidence) with personal data removed.
+It runs in production at <https://ledgerly-whop.vercel.app> (Next.js on Vercel, Postgres on Supabase). Everything here was exercised with real money; the proof run and raw API responses are in [`examples/assessment/`](examples/assessment) with personal data removed.
+
+> **Ledgerly team: start with [HANDOVER.md](HANDOVER.md)** (what this is, how it plugs into Ledgerly, deploy, migrate sellers, open decisions) and keep [RUNBOOK.md](RUNBOOK.md) for on-call. This README is the technical reference.
 
 ---
 
@@ -25,7 +27,7 @@ It runs in production at <https://ledgerly-whop.vercel.app> (Next.js on Vercel, 
 8. [Operating it](#operating-it)
 9. [Decisions and trade-offs](#decisions-and-trade-offs)
 10. [Whop behaviour to know before going live](#whop-behaviour-to-know-before-going-live)
-11. [Part 1 evidence](#part-1-evidence)
+11. [Assessment proof run](#assessment-proof-run)
 
 ---
 
@@ -61,7 +63,10 @@ flowchart LR
 | [`src/lib/reconcile.ts`](src/lib/reconcile.ts) | Two-way diff of Whop vs the local ledger |
 | [`src/lib/wallet.ts`](src/lib/wallet.ts) | Short-lived, explicitly scoped tokens for the embedded payouts UI |
 | [`supabase/migrations`](supabase/migrations) | Schema |
-| [`scripts/`](scripts) | Operational CLIs; [`scripts/part1/`](scripts/part1) re-runs each assessment step |
+| [`cli/ledgerly.ts`](cli/ledgerly.ts) | The `pnpm ledgerly` operations CLI |
+| [`src/lib/import-sellers.ts`](src/lib/import-sellers.ts) | Bulk seller migration from CSV |
+| [`src/lib/ops-job.ts`](src/lib/ops-job.ts) | Hourly job: payout sync, reconcile, settle, alert |
+| [`examples/assessment/`](examples/assessment) | The assessment's proof run: one script per step, plus evidence |
 | [`tests/`](tests) | Fee math, seller share on real fee data, signatures, envelope versions, reconciliation |
 
 ---
@@ -130,7 +135,7 @@ sequenceDiagram
   L->>L: transfer completed,<br/>ledger transfer_in +8.45 (once)
 ```
 
-`settlePlatformOrder` always pays **what is owed minus what was already sent**, keyed on the target amount. A missed or failed settlement is retried by `pnpm settle`; a corrected formula produces exactly one adjustment transfer (`order:<id>:share:to-845`).
+`settlePlatformOrder` always pays **what is owed minus what was already sent**, keyed on the target amount. A missed or failed settlement is retried by the hourly ops job or `pnpm ledgerly settle`; a corrected formula produces exactly one adjustment transfer (`order:<id>:share:to-845`).
 
 ---
 
@@ -146,21 +151,21 @@ Whop delivers **at least once**, retries for ~3 days, doesn't guarantee order, a
 6. **Version-tolerant routing**: `account_id` (payloads pinned to `2026-08-14`+), else `company_id` (older/unpinned), else the object's own account. Legacy `withdrawal.*` events use the same handler as `payout.*` (same `wdrl_` id), so they can't double-post.
 7. Work that calls Whop (the seller transfer) runs **after** the 2xx via `after()`, so Whop never waits on it or retries because of it.
 
-Proven with real deliveries: replaying a `payout.created` with the same id returned `duplicate` and changed nothing; with a regenerated id it was recorded but the ledger and payout rows didn't move ([evidence](evidence/05-webhooks/test-replay-suspend.json)).
+Proven with real deliveries: replaying a `payout.created` with the same id returned `duplicate` and changed nothing; with a regenerated id it was recorded but the ledger and payout rows didn't move ([evidence](examples/assessment/evidence/05-webhooks/test-replay-suspend.json)).
 
 ---
 
 ## Reconciliation
 
 ```bash
-pnpm reconcile seller_us_mira     # one seller; exit code 1 if anything is off
-pnpm reconcile --all
-pnpm reconcile --all --fix        # first pull payout state from Whop, then diff
+pnpm ledgerly reconcile seller_us_mira   # one seller; exit code 1 if anything is off
+pnpm ledgerly reconcile                  # every seller
+pnpm ledgerly reconcile --fix            # first pull payout state from Whop, then diff
 ```
 
 For one seller it pulls from Whop: direct-charge payments on the seller's account, platform-collected payments on Ledgerly's account tagged with that seller, transfers to the seller, payouts, and the seller's balance. It diffs each against the local tables in both directions (`missing_locally`, `missing_at_whop`, `amount_mismatch`, `state_mismatch`), compares refunded amounts, and checks the seller's ledger sum against their Whop USD balance to the cent.
 
-`--fix` exists because webhooks don't cover every transition: our real payout reached `completed` at Whop with no `payout.updated` delivered for it. The repair uses the webhook handler's own upsert, so there is one code path for payout state. Run it on a schedule.
+`--fix` exists because webhooks don't cover every transition: our real payout reached `completed` at Whop with no `payout.updated` delivered for it. The repair uses the webhook handler's own upsert, so there is one code path for payout state. It runs every hour as part of `/api/cron/ops` (Vercel Cron), which records each run in `job_runs`, shows the latest on the operator console, and posts to `ALERT_WEBHOOK_URL` when anything is off.
 
 On its first run it caught two real bugs in this repo's webhook handlers (a replayed `payment.succeeded` regressing a refunded order, and a replayed `refund.created` doubling `refunded_amount`). Both are fixed and covered above. Current state: all sellers reconcile clean; Mira 8.48 = 8.48, Batida 8.45 = 8.45.
 
@@ -190,7 +195,9 @@ All admin endpoints take `Authorization: Bearer $ADMIN_API_TOKEN`.
 | --- | --- | --- | --- |
 | `POST` | `/api/sellers` | `{ externalId, email, country, title?, collectionMode? }` | `{ accountId, created, onboardingUrl, expiresAt }`. `201` when created, `200` when it already existed. Safe to retry. |
 | `POST` | `/api/checkouts` | `{ sellerExternalId, title, sku, price, currency? }` | `{ orderId, checkoutId, purchaseUrl, price, fee, flow }`. Flow follows the seller's policy. |
+| `GET` | `/api/orders/:orderId` | | Order status; deliver the file when `deliverable` is `true`. |
 | `GET` | `/api/reconcile/:externalId` | | Reconciliation report; `409` if anything is off. |
+| `GET` | `/api/cron/ops` | (Vercel Cron, `Bearer $CRON_SECRET`) | Hourly payout sync, reconcile, settle |
 | `POST` | `/api/webhooks/whop` | Whop webhook | `{ outcome: processed \| duplicate \| ignored }` |
 | `GET` | `/api/sellers/:id/wallet-token` | (seller session) | `{ token, expiresAt }` |
 | `GET` | `/api/sellers/:id/payouts-portal` | (seller session) | Redirect to Whop's hosted portal |
@@ -215,7 +222,7 @@ pnpm dev
 
 1. **Platform account**: create Ledgerly's business on Whop (dashboard or `whop accounts create`).
 2. **API key**: dashboard → Developer → Create API key → Custom permissions (see scopes below). Creating keys requires 2FA; API keys cannot create API keys.
-3. **Webhook**: deploy, set `APP_URL`, then `pnpm tsx scripts/part1/05a-create-webhook.ts`. It creates one webhook on the platform account with `child_resource_events: true`, the 8 events, pinned to `api_version_date: 2026-09-29`, and writes the signing secret to `.env.local` without printing it.
+3. **Webhook**: deploy, set `APP_URL`, then `pnpm ledgerly webhook:create`. It creates one webhook on the platform account with `child_resource_events: true`, the 8 events, pinned to `api_version_date: 2026-09-29`, and writes the signing secret to `.env.local` without printing it.
 4. **Vercel**: add the same env vars (`vercel env add …`) and `vercel deploy --prod`.
 
 ### API key scopes
@@ -235,14 +242,22 @@ Each scope maps to a call this service makes. The `payout:*` block is required b
 
 ## Operating it
 
+`pnpm ledgerly help` lists every command. The ones you'll use:
+
 | Command | What it does |
 | --- | --- |
-| `pnpm reconcile <seller\|--all> [--fix]` | Diff Whop vs local (non-zero exit on any discrepancy); `--fix` first syncs payout state from Whop |
-| `pnpm settle` | Pay any platform-collected order whose seller share hasn't fully gone out |
-| `pnpm tsx scripts/reprocess-events.ts <type>` | Re-run handlers over stored events (all handlers are idempotent) |
-| `pnpm onboarding-link <seller>` | Fresh onboarding link (never creates a second account) |
-| `pnpm tsx scripts/money-trace.ts <pay_id>` | A payment's fee lines, both ledgers, both balances |
-| `pnpm test` / `pnpm typecheck` / `pnpm lint` | Checks |
+| `pnpm ledgerly import-sellers FILE.csv [--dry-run]` | Bulk-migrate sellers; safe to re-run; writes a results CSV with onboarding links |
+| `pnpm ledgerly onboard --external-id … --email … --country …` | One seller |
+| `pnpm ledgerly onboarding-link ID` | Fresh onboarding link (never creates a second account) |
+| `pnpm ledgerly checkout --seller ID --title … --sku … --price 10` | Create a checkout from the terminal |
+| `pnpm ledgerly reconcile [ID] [--fix]` | Diff Whop vs local; non-zero exit on any discrepancy |
+| `pnpm ledgerly settle [ORDER_ID]` | Pay what's still owed on platform-collected orders |
+| `pnpm ledgerly reprocess EVENT_TYPE` | Re-run handlers over stored events (all idempotent) |
+| `pnpm ledgerly trace PAY_ID` | A payment's fee lines and both balances |
+| `pnpm ledgerly webhook:create` | Register the platform webhook; writes its secret to `.env.local` |
+| `pnpm test` · `pnpm typecheck` · `pnpm lint` | Checks (CI runs them plus `pnpm build` on every push) |
+
+Incident playbooks are in [RUNBOOK.md](RUNBOOK.md).
 
 ---
 
@@ -275,17 +290,6 @@ Found while running this in production:
 
 ---
 
-## Part 1 evidence
+## Assessment proof run
 
-Production ids (real money, small amounts):
-
-| Item | Id |
-| --- | --- |
-| Ledgerly platform | `biz_3iFse5N7RWo86f` |
-| Sellers | US `biz_9ejVCcyqXnAYeV` · DE `biz_Vo8bzz6O0bWPcR` · BR `biz_oLmOUobBcpkXHb` |
-| Direct charge → refund | `pay_9pKP6wPzCIIGKf` → `rf_orWZqAstlPVIT77` |
-| Platform sale → transfers | `pay_uTqVCEQAnsGkcp` → `ctt_vVfORKght2JL9h` + true-up `ctt_EIx63sdXPnpfwp` |
-| Embedded withdrawal | `wdrl_kjhEtb6Vfwcuy` |
-| Webhook | `hook_mr4wbDzKhiXW5` (one payload per event type in [`evidence/05-webhooks/payloads`](evidence/05-webhooks/payloads)) |
-
-Each step can be re-run from [`scripts/part1/`](scripts/part1); the outputs are in [`evidence/`](evidence).
+The Whop Platforms FDE assessment's Part 1 was run end to end in production with these scripts. Ids, steps and evidence: [`examples/assessment/README.md`](examples/assessment/README.md).
