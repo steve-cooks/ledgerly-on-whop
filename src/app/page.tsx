@@ -62,7 +62,7 @@ export default async function Home() {
           </Card>
 
           <div className="space-y-6">
-            <Card title="Webhooks" description="Signed, stored once, processed exactly once.">
+            <Card title="Webhooks" description="Signed and stored; each one applied once.">
               <p className="text-3xl font-semibold tabular">{events[0].processed}</p>
               <p className="text-sm text-muted">of {events[0].n} events processed</p>
             </Card>
