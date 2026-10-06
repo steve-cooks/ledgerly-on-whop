@@ -27,7 +27,9 @@ for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
 }
 
 beforeEach(async () => {
-  await admin.unsafe(`truncate webhook_events, ledger_entries, payouts, refunds, disputes, seller_transfers, orders, sellers, job_runs restart identity cascade`);
+  // Every table in the schema, so new migrations need no change here.
+  const tables = await admin`select tablename from pg_tables where schemaname = 'public'`;
+  await admin.unsafe(`truncate ${tables.map((t) => `"${t.tablename}"`).join(", ")} restart identity cascade`);
   vi.clearAllMocks();
 });
 
