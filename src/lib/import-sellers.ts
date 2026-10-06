@@ -1,4 +1,5 @@
 import { sql } from "./db";
+import { whopErrorSummary } from "./errors";
 import { onboardSeller, SellerInput } from "./onboarding";
 
 /**
@@ -133,8 +134,10 @@ export async function importSellers(
           expires_at: r.expiresAt ?? undefined,
         });
       } catch (err) {
-        const e = err as { body?: unknown; message?: string };
-        emit({ line: row.line, external_id, status: "error", error: JSON.stringify(e.body ?? e.message) });
+        // Only Whop's status, code and message: the full response body can echo personal data.
+        const summary = whopErrorSummary(err);
+        const error = summary ? `${summary.status} ${summary.code ?? summary.type ?? ""} ${summary.message ?? ""}`.replace(/\s+/g, " ").trim() : (err as Error).message;
+        emit({ line: row.line, external_id, status: "error", error: error.slice(0, 300) });
       }
     }
   };

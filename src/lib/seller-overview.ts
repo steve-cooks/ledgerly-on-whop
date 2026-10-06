@@ -43,6 +43,8 @@ function payoutFees(fees: unknown) {
   const amt = (l?: FeeLine) => Number(l?.fixed?.amount ?? 0);
   const pct = (l?: FeeLine) => Number(l?.percentage ?? 0);
   const rail = (key: string) => ({
+    // Whop didn't return this rail's fee: show it as unknown, never as free.
+    known: Boolean(f.payouts?.[key]),
     whopFixed: amt(f.payouts?.[key]),
     whopPct: pct(f.payouts?.[key]),
     markupFixed: amt(f.markups?.payouts?.[key]),

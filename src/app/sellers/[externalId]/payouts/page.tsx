@@ -132,7 +132,7 @@ export default async function PayoutsPage({
   );
 }
 
-type Rail = { whopFixed: number; whopPct: number; markupFixed: number; markupPct: number };
+type Rail = { known: boolean; whopFixed: number; whopPct: number; markupFixed: number; markupPct: number };
 
 function feeText(fixed: number, pct: number) {
   const parts = [pct ? `${pct}%` : "", fixed ? `$${fixed.toFixed(2)}` : ""].filter(Boolean);
@@ -148,8 +148,8 @@ function FeeRow({ label, sub, rail }: { label: string; sub: string; rail: Rail }
         <p className="text-xs text-subtle">{sub}</p>
       </div>
       <div className="text-right tabular">
-        <p className="font-medium text-ink">{feeText(rail.whopFixed, rail.whopPct)}</p>
-        {hasMarkup && <p className="text-xs text-accent-ink">+ {feeText(rail.markupFixed, rail.markupPct)} Ledgerly</p>}
+        <p className="font-medium text-ink">{rail.known ? feeText(rail.whopFixed, rail.whopPct) : "Shown at withdrawal"}</p>
+        {rail.known && hasMarkup && <p className="text-xs text-accent-ink">+ {feeText(rail.markupFixed, rail.markupPct)} Ledgerly</p>}
       </div>
     </div>
   );

@@ -8,8 +8,8 @@ export const metadata: Metadata = { title: "Order" };
 
 const STATUS: Record<string, { label: string; tone: "good" | "warn" | "bad" | "neutral"; note: string }> = {
   pending: { label: "Processing", tone: "warn", note: "We're confirming your payment. This page updates automatically." },
-  paid: { label: "Paid", tone: "good", note: "Payment confirmed. Ledgerly will deliver your files shortly." },
-  failed: { label: "Payment failed", tone: "bad", note: "Your card wasn't charged. Please try again." },
+  paid: { label: "Paid", tone: "good", note: "Payment confirmed. Thanks for your order." },
+  failed: { label: "Payment failed", tone: "bad", note: "This payment didn't go through. Please try again." },
   refunded: { label: "Refunded", tone: "neutral", note: "This order was refunded in full." },
   partially_refunded: { label: "Partially refunded", tone: "neutral", note: "Part of this order was refunded." },
   disputed: { label: "Disputed", tone: "bad", note: "This payment is under dispute." },
