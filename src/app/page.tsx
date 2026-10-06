@@ -1,16 +1,48 @@
 import { Badge, Card, COUNTRY_NAMES, Page, SiteHeader, flag, money } from "@/components/ui";
 import { sql } from "@/lib/db";
-import { isOperator } from "@/lib/seller-session";
+import { currentOperator } from "@/lib/seller-session";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
-  if (!(await isOperator())) {
+const SIGNIN_ERRORS: Record<string, string> = {
+  not_team: "That Whop account isn't on Ledgerly's team. Ask an owner to add you in Whop (Settings → Team), then try again.",
+  cancelled: "Sign-in was cancelled on Whop.",
+  expired: "That sign-in expired or was opened in another browser. Please try again.",
+  failed: "Whop couldn't complete the sign-in. Please try again.",
+  unavailable: "Sign in with Whop isn't set up on this deployment yet.",
+};
+
+export default async function Home({ searchParams }: { searchParams: Promise<{ signin?: string }> }) {
+  const operator = await currentOperator();
+  if (!operator) {
+    const { signin } = await searchParams;
+    const error = signin ? (SIGNIN_ERRORS[signin] ?? SIGNIN_ERRORS.failed) : null;
     return (
       <>
         <SiteHeader section="Operator console" />
         <Page>
-          <Card title="Operator sign-in required" description="This console shows Ledgerly's sellers, orders and operations. Open an operator sign-in link to continue." />
+          <div className="mx-auto mt-6 max-w-md space-y-4 sm:mt-16">
+            <Card>
+              <div className="space-y-5 py-2 text-center">
+                <div className="mx-auto grid size-12 place-items-center rounded-2xl bg-ink text-lg font-bold text-white">L</div>
+                <div className="space-y-1.5">
+                  <h1 className="text-xl font-semibold tracking-tight">Ledgerly operator console</h1>
+                  <p className="text-sm text-muted">Sellers, orders and payment operations. For members of Ledgerly&apos;s Whop team.</p>
+                </div>
+                {error && <p className="rounded-xl bg-warn-soft px-4 py-3 text-left text-sm text-warn">{error}</p>}
+                <a
+                  href="/api/auth/whop/start"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 py-3 text-sm font-medium text-white transition hover:opacity-90"
+                >
+                  Sign in with Whop
+                </a>
+                <p className="text-xs leading-relaxed text-subtle">
+                  You&apos;ll confirm on Whop, then come straight back. Owners, admins, managers and support staff on Ledgerly&apos;s Whop team can sign in.
+                </p>
+              </div>
+            </Card>
+            <p className="text-center text-xs text-subtle">Selling on Ledgerly? Your payouts are in your Ledgerly seller dashboard.</p>
+          </div>
         </Page>
       </>
     );
@@ -25,7 +57,19 @@ export default async function Home() {
 
   return (
     <>
-      <SiteHeader section="Operator console" />
+      <SiteHeader
+        section="Operator console"
+        right={
+          <form action="/api/auth/signout" method="post" className="flex items-center gap-3 text-sm">
+            <span className="hidden text-muted sm:inline">
+              Signed in as <span className="font-medium text-ink">{operator.name}</span>
+            </span>
+            <button type="submit" className="rounded-lg border border-line px-3 py-1.5 font-medium text-ink transition hover:bg-bg">
+              Sign out
+            </button>
+          </form>
+        }
+      />
       <Page>
         <div className="mb-8">
           <h1 className="text-3xl font-semibold tracking-tight">Ledgerly on Whop</h1>

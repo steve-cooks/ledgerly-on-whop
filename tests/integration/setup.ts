@@ -13,6 +13,8 @@ Object.assign(process.env, {
   WHOP_PLATFORM_ACCOUNT_ID: "biz_platform",
   WHOP_WEBHOOK_SECRET: "ws_" + "a".repeat(64),
   APP_URL: "https://ledgerly.test",
+  SESSION_SECRET: "s".repeat(32),
+  WHOP_OAUTH_CLIENT_ID: "app_test",
 });
 
 // Fresh schema from the real migrations, once per file.

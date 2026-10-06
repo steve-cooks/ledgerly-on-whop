@@ -14,6 +14,8 @@ const schema = z.object({
   // Demo sign-in (stand-in for Ledgerly's auth). Off unless explicitly enabled; no default secret.
   DEMO_LOGIN_ENABLED: z.enum(["true", "false"]).default("false"),
   SESSION_SECRET: z.string().min(32).optional(),
+  // "Sign in with Whop" for operators: the OAuth app's client id (app_…). Sign-in is off without it.
+  WHOP_OAUTH_CLIENT_ID: z.string().startsWith("app_").optional(),
   APP_URL: z.string().url().default("http://localhost:3000"),
   // Ledgerly's take rate, in basis points (800 = 8%).
   PLATFORM_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(800),

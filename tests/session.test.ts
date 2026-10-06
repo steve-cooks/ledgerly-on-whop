@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 // Demo sign-in tokens. env() is read lazily, so set it before the first call.
 const jar = new Map<string, string>();
 vi.mock("next/headers", () => ({
-  cookies: async () => ({ get: (k: string) => (jar.has(k) ? { value: jar.get(k) } : undefined), set: (k: string, v: string) => jar.set(k, v) }),
+  cookies: async () => ({ get: (k: string) => (jar.has(k) ? { value: jar.get(k) } : undefined), set: (k: string, v: string) => jar.set(k, v), delete: (k: string) => jar.delete(k) }),
 }));
 
 beforeAll(() => {
@@ -16,7 +16,7 @@ beforeAll(() => {
 });
 
 describe("demo sign-in tokens", async () => {
-  const { signToken, verifyToken, startSession, currentSeller, isOperator } = await import("@/lib/seller-session");
+  const { signToken, verifyToken, startSession, startOperatorSession, currentSeller, currentOperator, isOperator } = await import("@/lib/seller-session");
 
   it("a link starts a session for its subject", async () => {
     expect(await startSession(signToken("seller_us"))).toBe("seller_us");
@@ -27,9 +27,17 @@ describe("demo sign-in tokens", async () => {
   it("a link can't be used as a session, and a session can't start a new one", async () => {
     const link = signToken("seller_us");
     expect(verifyToken(link, "session")).toBeNull();
-    const session = signToken("seller_us", "session");
+    await startSession(link);
+    const session = jar.get("ledgerly_session")!;
     expect(verifyToken(session, "session")).toBe("seller_us");
     expect(await startSession(session)).toBeNull();
+  });
+
+  it("an operator session from Whop sign-in carries the operator's name", async () => {
+    await startOperatorSession("Ops Person");
+    expect(await isOperator()).toBe(true);
+    expect(await currentOperator()).toEqual({ name: "Ops Person" });
+    expect(await currentSeller()).toBeNull();
   });
 
   it("rejects tampered and expired tokens", () => {

@@ -38,7 +38,8 @@ Unit tests need nothing. Integration tests need Docker (they start their own Pos
 | Hourly job (payout sync, reconcile, settle, alert) | `src/lib/ops-job.ts`, `src/app/api/cron/ops/route.ts`, `vercel.json` |
 | Bulk seller migration | `src/lib/import-sellers.ts` |
 | Seller payouts page (Whop Elements) | `src/app/sellers/[externalId]/payouts/`, token minting in `src/lib/wallet.ts` |
-| Seller / operator auth (demo stand-in to replace) | `src/lib/seller-session.ts` (`currentSeller`, `isOperator`) |
+| Operator sign-in (Sign in with Whop, team check) | `src/lib/whop-oauth.ts`, `src/app/api/auth/` |
+| Sessions; seller auth (demo stand-in to replace) | `src/lib/seller-session.ts` (`currentSeller`, `currentOperator`) |
 | Error types and safe Whop error summaries | `src/lib/errors.ts` |
 | Admin API auth | `src/lib/admin-auth.ts` |
 | Env vars (validated lazily) | `src/lib/env.ts`, `.env.example` |

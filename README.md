@@ -212,7 +212,9 @@ On its first runs it caught two real bugs in this repo's handlers (a replayed `p
 - Ledgerly charges **+$0.50 on instant (RTP) withdrawals** for every seller (`PATCH /accounts/{platform}/fees` → `child_markups.payouts.rtp`). The fee panel reads each rail's Whop fee and Ledgerly markup live.
 - **Hosted alternative**: "Open hosted payouts portal" creates a `payouts_portal` account link and redirects.
 
-The demo sign-in stands in for Ledgerly's own auth: `pnpm ledgerly login-link <seller>` (or `--operator`) prints a link that expires in 24 hours and opens an 8-hour session. Tokens are signed with their purpose: a link can only start a session and a session cookie can't be exchanged for a new one, so every session ends 8 hours after sign-in. It is off unless `DEMO_LOGIN_ENABLED=true` and a `SESSION_SECRET` is set. Seller status pages show details only to that seller or an operator; the operator console requires an operator session.
+**Staff sign in with Whop.** The console at `/` has a **Sign in with Whop** button (OAuth 2.1 with PKCE, server-side, against the OAuth app in `WHOP_OAUTH_CLIENT_ID`). After Whop confirms who they are, the service checks Whop's team list for Ledgerly (`teamMembers.list`) and lets in owners, admins, managers and support staff; anyone else sees why they were refused. No Whop tokens are kept (the refresh token is revoked straight away); the console session lasts 8 hours.
+
+**Sellers** sign in through Ledgerly's own site in production. Until that's wired in, a demo sign-in stands in: `pnpm ledgerly login-link <seller>` (or `--operator`) prints a link that expires in 24 hours and opens an 8-hour session. Tokens are signed with their purpose: a link can only start a session and a session cookie can't be exchanged for a new one, so every session ends 8 hours after sign-in. Demo links are off unless `DEMO_LOGIN_ENABLED=true`; every session needs `SESSION_SECRET`. Seller status pages show details only to that seller or an operator; the operator console requires an operator session.
 
 ---
 
@@ -267,6 +269,7 @@ The key needs these permissions. Most are used on every request; a few are only 
 | Checkouts | `checkout_configuration:create`, `checkout_configuration:basic:read`, `plan:create`, `plan:basic:read`, `access_pass:create`, `access_pass:basic:read` |
 | Payments | `payment:basic:read`, `payment:manage` (refunds), `payment:dispute:read` |
 | Transfers | `payout:transfer_funds` (plus the transfer read scopes above) |
+| Staff sign-in (team check) | `company:authorized_user:read` |
 | Webhooks | `developer:manage_webhook`, `webhook_receive:payments`, `:refunds`, `:disputes`, `:transfers`, `:withdrawals`, `:accounts` |
 | Setup / occasional | `company:update_child_fees` (withdrawal markup), `company:suspend_child` (suspensions), `payment:charge` (scripted top-ups) |
 | Optional | `identity:read`, `identity:write`: only if you embed Whop's KYC element; the current pages don't |

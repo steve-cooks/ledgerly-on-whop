@@ -12,6 +12,7 @@ export const fakeWhop: Record<string, Record<string, ReturnType<typeof vi.fn>>> 
   checkoutConfigurations: { create: vi.fn() },
   accounts: { create: vi.fn(), retrieve: vi.fn() },
   accountLinks: { create: vi.fn() },
+  teamMembers: { list: vi.fn() },
 };
 
 /** A Whop SDK error as the SDK throws it. */

@@ -35,7 +35,8 @@ All API calls send `Authorization: Bearer $ADMIN_API_TOKEN`. Full request and re
    - **Capacity:** each signup is two Whop calls, and Whop allows about 600 calls a minute per operation, so roughly 600 new sellers a minute. Bursts beyond that get `502` with Whop's `429`; retry with backoff (it's idempotent). For a launch-day spike, record the seller and let the Continue verification button create the link when they're ready.
 2. **When a buyer checks out**: `POST /api/checkouts` with `{ sellerExternalId, title, sku, price, requestKey }`, then redirect the buyer to `purchaseUrl`. Use Ledgerly's cart or order id as `requestKey`, so a retried request returns the same checkout instead of a second one. The 8% fee and the payment flow are decided here, from the seller's `collectionMode`. USD only for now.
 3. **Before delivering the file**: `GET /api/orders/:orderId` and deliver when `deliverable` is `true`. Buyers come back to `/orders/:orderId` after paying; point that at your own thank-you page if you prefer (`redirect_url` in [`src/lib/checkout.ts`](src/lib/checkout.ts)).
-4. **Seller payouts page**: link signed-in sellers to `/sellers/:externalId/payouts`. **Replace the demo sign-in**: [`src/lib/seller-session.ts`](src/lib/seller-session.ts) implements `currentSeller()` and `isOperator()` with expiring demo links. Swap both for checks against Ledgerly's own session (verify Ledgerly's session cookie or JWT and return the seller's external id, or whether the user is staff), then set `DEMO_LOGIN_ENABLED=false`. Nothing else changes.
+4. **Seller payouts page**: link signed-in sellers to `/sellers/:externalId/payouts`. **Replace the demo seller sign-in**: `currentSeller()` in [`src/lib/seller-session.ts`](src/lib/seller-session.ts) reads a session started by demo links. Swap it for a check against Ledgerly's own session (verify Ledgerly's session cookie or JWT and return the seller's external id), then set `DEMO_LOGIN_ENABLED=false`. Nothing else changes.
+   - **Staff already sign in for real**: the console at `/` has **Sign in with Whop**. Anyone on Ledgerly's Whop team as owner, admin, manager or support gets in; add or remove people in Whop (Settings → Team). It uses the OAuth app `WHOP_OAUTH_CLIENT_ID` and needs `company:authorized_user:read` on the API key.
 5. **Operations** run by themselves every hour (`/api/cron/ops`) and alert on problems. Engineers use the `pnpm ledgerly` CLI for everything else. See the [runbook](RUNBOOK.md).
 
 ## Deploy your own copy (about 15 minutes)
@@ -90,7 +91,8 @@ These came out of running real money through Whop. Most need a business decision
 
 ## Go-live checklist
 
-- [ ] Replace the demo sign-in with Ledgerly's auth (`currentSeller()`, `isOperator()`), then set `DEMO_LOGIN_ENABLED=false`.
+- [ ] Replace the demo seller sign-in with Ledgerly's auth (`currentSeller()`), then set `DEMO_LOGIN_ENABLED=false`.
+- [ ] Review who is on Ledgerly's Whop team: they can sign in to the console.
 - [ ] Decide who gets operator access (the console at `/` and seller status pages show seller and order details).
 - [ ] Define retention for the webhook inbox (`webhook_events`): it stores raw payloads, which include buyers' names and card digits.
 - [ ] Set `ALERT_WEBHOOK_URL` and confirm an alert arrives (break a test seller's ledger, run `/api/cron/ops`).
