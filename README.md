@@ -90,7 +90,7 @@ sequenceDiagram
   W->>S: +10.00 gross, −0.72 Whop fees, −0.80 application fee = 8.48 (pending ~T+1)
   W->>P: +0.80 application_fee_payout (pending)
   W-->>L: payment.succeeded (account_id = biz_seller)
-  L->>L: order → paid; ledger: sale +10.00, platform_fee −0.80, processing_fee −0.72
+  L->>L: order → paid, ledger: sale +10.00, platform_fee −0.80, processing_fee −0.72
 
   Note over B,P: Refund
   L->>W: POST /payments/PAY_ID/refund
@@ -99,7 +99,7 @@ sequenceDiagram
   L->>W: POST /payments/PAY_ID/refund (new Idempotency-Key)
   W->>B: $10.00 back
   W-->>L: refund.created
-  L->>L: refunds row (once per refund id); order → refunded; ledger refund −10.00
+  L->>L: refunds row (once per refund id), order → refunded, ledger refund −10.00
   Note over P: Ledgerly keeps its $0.80 fee. The seller absorbs Whop's $0.72.
 ```
 
@@ -127,7 +127,7 @@ sequenceDiagram
   L->>W: POST /transfers {origin: biz_platform, destination: biz_seller, 8.45}<br/>idempotence_key: order:ORDER:share
   W->>S: +8.45 (available immediately, even before Ledgerly's sale settles)
   W-->>L: transfer.completed ×2 (once per participant)
-  L->>L: seller_transfers → completed; ledger transfer_in +8.45 (once, keyed on transfer id)
+  L->>L: seller_transfers → completed, ledger transfer_in +8.45 (once, keyed on transfer id)
 ```
 
 `settlePlatformOrder` always pays **what is owed minus what was already sent**, keyed on the target amount. A missed or failed settlement is retried by `pnpm settle`; a corrected formula produces exactly one adjustment transfer (`order:<id>:share:to-845`).
