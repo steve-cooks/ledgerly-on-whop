@@ -17,6 +17,10 @@ export function AuthForm({ mode }: { mode: "signup" | "login" }) {
           We sent a confirmation link to <span className="font-medium text-ink">{state.checkEmail}</span>. Open it on this device to
           finish signing up.
         </p>
+        <p className="text-muted">
+          No email? If you already have an account with this address, <a href="/sell/login" className="font-medium text-accent-ink hover:underline">log in</a> instead
+          (with Google or Whop if you signed up that way).
+        </p>
       </div>
     );
   }
