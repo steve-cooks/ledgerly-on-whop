@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { loadWhop } from "@whop/elements";
 import {
   ActivityElement,
-  BalanceElement,
   Balances,
+  BreakdownElement,
+  ListElement,
   Wallet,
   WhopElements,
   WithdrawElement,
@@ -49,8 +50,11 @@ export function PayoutPortal({ externalId, accountId }: { externalId: string; ac
     <WhopElements elements={loadWhop()}>
       <Wallet accountId={accountId} accessToken={token.token} currency="usd">
         <section className="rounded-xl border p-4">
+          {/* Holdings + available/pending split. (The balance chart element also needs stats:read,
+              which we don't grant sellers.) */}
           <Balances>
-            <BalanceElement />
+            <ListElement />
+            <BreakdownElement />
           </Balances>
         </section>
         <section className="rounded-xl border p-4">
