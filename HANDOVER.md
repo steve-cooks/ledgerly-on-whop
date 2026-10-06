@@ -74,7 +74,7 @@ pnpm ledgerly import-sellers sellers.csv                # create accounts + onbo
 
 These came out of running real money through Whop. Each needs a business decision, not code.
 
-1. **Stablecoin balances.** Money Ledgerly deposits lands as USDT, and transfers to sellers move USDT even when the API says `usd`. Decide whether that's acceptable for sellers, or fund Ledgerly's balance by bank deposit instead and confirm with Whop how transfers are denominated.
+1. **What sellers receive (USD vs USDT).** In the test run Ledgerly's balance was topped up with a USDT crypto deposit (it lands in seconds; a bank deposit takes 1–3 business days). Transfers requested in `usd` were then paid out of that USDT, so sellers received USDT, while the API still reported `usd`. Decide which asset sellers should be paid in, fund Ledgerly's balance accordingly (bank deposit for USD), and confirm with Whop how transfers choose between USD and USDT when both are available.
 2. **Refunds before settlement.** A seller can't refund a sale until its funds settle (about 1–2 days), and Whop's fees aren't returned. Today Ledgerly fronts the refund with a transfer. Decide whether to keep that, and how to recover advances from sellers' later sales (not automated yet).
 3. **Who pays processing fees.** Direct sellers pay Whop's fees. Platform-collected sellers are paid at parity (same net as a direct sale). Ledgerly absorbs the sales-tax service fee on its own sales.
 4. **Sales tax.** When Ledgerly is the merchant (platform-collected sales), Whop adds and remits sales tax. On direct charges to individual sellers it didn't. Confirm the tax position with Whop and your advisor.

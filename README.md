@@ -276,7 +276,7 @@ Incident playbooks are in [RUNBOOK.md](RUNBOOK.md).
 
 Found while running this in production:
 
-1. **Transfers move USDT.** A card deposit to Ledgerly landed as USDT, and every `transfers.create` with `currency: "usd"` moved USDT on-chain, while the transfer object still reported `usd`. Balances blend USD and USDT by value, and a refund can drive a seller's USD balance negative while their USDT covers it.
+1. **A "usd" transfer can move USDT.** Ledgerly's balance was funded with a USDT crypto deposit (arrives in seconds; a bank deposit takes 1–3 business days). Every `transfers.create` with `currency: "usd"` was then paid from that USDT and delivered USDT to the seller, while the transfer object still reported `usd`. Balances blend USD and USDT by value, and a refund drove a seller's USD balance negative while their USDT covered it. Fund the platform balance in the currency you intend sellers to receive.
 2. **Refunds on direct charges need the seller's *available* balance**, so a new seller can't refund a sale until it settles, and never fully without covering Whop's fees. The application fee is not returned on refund.
 3. **`status` hides refunds and failures**: a refunded payment stays `paid` (substatus `refunded`); a declined one is `open` (substatus `failed`).
 4. **Idempotency replays failures for 24h.** Retrying with the same `Idempotency-Key` after fixing the cause returns the cached error (`Idempotent-Replayed: true`). Use a new key for a genuinely new attempt.

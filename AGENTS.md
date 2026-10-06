@@ -73,7 +73,7 @@ Tests need no secrets or network. Anything that calls Whop or the database is ex
 - Inline checkout `plan.application_fee_amount` and `plan.product` are legacy fields not in the SDK types; `product.external_identifier` is required with them. They're spread in with a cast in `checkout.ts`.
 - Account links need the full `payout:*` permission family on the API key; Whop reports one missing scope per failed call.
 - Refunds on direct charges debit the seller's *available* balance (pending sale funds don't count); the application fee is not reversed.
-- Transfers can settle as USDT even with `currency: "usd"`.
+- A `currency: "usd"` transfer is paid from whatever USD-equivalent balance the sender has: from a USDT-funded balance it moves USDT, and the transfer object still says `usd`. Check per-currency balances with `GET /ledger_accounts/{id}` (careful: that response also contains the owner's personal data).
 - Whop may not send a webhook for a payout's final state; `reconcile --fix` covers it.
 - Minimum payout is $10. Every payout starts `in_review / risk_review`.
 - The Elements wallet iframes don't refresh each other; the payouts page remounts `<Wallet>` after a withdrawal.
