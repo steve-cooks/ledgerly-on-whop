@@ -22,7 +22,7 @@ export default async function OrderPage({ params }: { params: Promise<{ orderId:
   const { orderId } = await params;
   if (!/^[0-9a-f-]{36}$/.test(orderId)) notFound();
   const [order] = await sql()`
-    select o.*, s.country, s.collection_mode, p.file_name, coalesce(su.store_name, o.seller_external_id) as store_name
+    select o.*, s.country, s.collection_mode, p.file_name, coalesce(su.store_name, s.title, o.seller_external_id) as store_name
     from orders o join sellers s on s.external_id = o.seller_external_id
     left join products p on p.id = o.product_id
     left join seller_users su on su.seller_external_id = o.seller_external_id
