@@ -1,0 +1,182 @@
+{
+  "id": "msg_SFXI2rzW0voEQI3VxgtDlLBX",
+  "data": {
+    "id": "pay_uTqVCEQAnsGkcp",
+    "user": {
+      "id": "user_1oDPcy6nYdRLz",
+      "name": "<redacted>",
+      "username": "<redacted>",
+      "profile_picture": "<redacted>"
+    },
+    "holds": [],
+    "total": {
+      "amount": "10.83",
+      "currency": "usd",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "status": "paid",
+    "paid_at": "2026-10-06T00:55:55.543Z",
+    "plan_id": "plan_KE927h5kuICiS",
+    "currency": "usd",
+    "metadata": {
+      "flow": "platform",
+      "ledgerly_order_id": "d8af2591-4a94-47ca-b4a7-6c73a0268193",
+      "seller_external_id": "seller_br_batida"
+    },
+    "quote_id": null,
+    "subtotal": {
+      "amount": "10.00",
+      "currency": "usd",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "voidable": false,
+    "member_id": "mber_m9L5WYuMRHBn0",
+    "retryable": false,
+    "substatus": "succeeded",
+    "usd_total": {
+      "amount": "10.83",
+      "currency": "usd",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "account_id": "biz_3iFse5N7RWo86f",
+    "created_at": "2026-10-06T00:55:54.318Z",
+    "line_items": [
+      {
+        "id": "li_ed0rhD0L7bLGswg",
+        "sku": null,
+        "label": "Batida Vol. 1 Sample Pack",
+        "plan_id": "plan_KE927h5kuICiS",
+        "quantity": 1,
+        "subtotal": {
+          "amount": "10.00",
+          "currency": "usd",
+          "decimals": 2,
+          "display_decimals": 2
+        },
+        "plan_title": null,
+        "product_id": "prod_ldoqikFIeocM7",
+        "product_title": "Batida Vol. 1 Sample Pack"
+      }
+    ],
+    "product_id": "prod_ldoqikFIeocM7",
+    "refundable": true,
+    "risk_score": 10,
+    "tax_amount": {
+      "amount": "0.83",
+      "currency": "usd",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "updated_at": "2026-10-06T00:55:59.273Z",
+    "refunded_at": null,
+    "shipment_id": null,
+    "decline_code": null,
+    "recovery_url": null,
+    "risk_signals": null,
+    "tax_behavior": "exclusive",
+    "auto_refunded": false,
+    "client_secret": null,
+    "membership_id": "mem_nxOEqSoNllFdHW",
+    "promo_code_id": null,
+    "billing_reason": "one_time",
+    "customer_email": "owner@example.com",
+    "customer_phone": null,
+    "needs_tracking": false,
+    "billing_address": "<redacted>",
+    "failure_message": null,
+    "payments_failed": 0,
+    "refunded_amount": {
+      "amount": "0.00",
+      "currency": "usd",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "shipping_address": null,
+    "amount_after_fees": {
+      "amount": "9.03",
+      "currency": "usd",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "payment_method_id": "payt_fsXlSbDKsloMp",
+    "presentment_total": {
+      "amount": "10.83",
+      "currency": "usd",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "three_ds_verified": false,
+    "dispute_alerted_at": null,
+    "payment_instrument": {
+      "card": {
+        "brand": "amex",
+        "last4": "<redacted>",
+        "exp_year": "<redacted>",
+        "exp_month": "<redacted>",
+        "issuer_identification_number": "<redacted>"
+      },
+      "icons": {
+        "card": {
+          "dark": {
+            "svg": "https://content.whop.com/payment_methods/amex/icons/card_dark.svg",
+            "png_1x": "https://content.whop.com/payment_methods/amex/icons/card_dark_30.png",
+            "png_2x": "https://content.whop.com/payment_methods/amex/icons/card_dark_60.png",
+            "png_4x": "https://content.whop.com/payment_methods/amex/icons/card_dark_120.png"
+          },
+          "light": {
+            "svg": "https://content.whop.com/payment_methods/amex/icons/card_light.svg",
+            "png_1x": "https://content.whop.com/payment_methods/amex/icons/card_light_30.png",
+            "png_2x": "https://content.whop.com/payment_methods/amex/icons/card_light_60.png",
+            "png_4x": "https://content.whop.com/payment_methods/amex/icons/card_light_120.png"
+          }
+        },
+        "square": {
+          "dark": {
+            "svg": "https://content.whop.com/payment_methods/amex/icons/square_dark.svg",
+            "png_1x": "https://content.whop.com/payment_methods/amex/icons/square_dark_32.png",
+            "png_2x": "https://content.whop.com/payment_methods/amex/icons/square_dark_64.png",
+            "png_4x": "https://content.whop.com/payment_methods/amex/icons/square_dark_128.png"
+          },
+          "light": {
+            "svg": "https://content.whop.com/payment_methods/amex/icons/square_light.svg",
+            "png_1x": "https://content.whop.com/payment_methods/amex/icons/square_light_32.png",
+            "png_2x": "https://content.whop.com/payment_methods/amex/icons/square_light_64.png",
+            "png_4x": "https://content.whop.com/payment_methods/amex/icons/square_light_128.png"
+          }
+        }
+      },
+      "display_name": "<redacted>",
+      "installment_count": null,
+      "payment_method_type": "card"
+    },
+    "settlement_time_at": "2026-10-07T00:00:00.000Z",
+    "payment_method_type": "card",
+    "tax_refunded_amount": {
+      "amount": "0.00",
+      "currency": "usd",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "verification_checks": {
+      "arn": null,
+      "zip_code": "PASS",
+      "address_line1": "PASS",
+      "card_holder_name": "UNCHECKED",
+      "authorization_code": "188776",
+      "card_security_code": "UNCHECKED"
+    },
+    "payment_rule_matches": [],
+    "last_payment_attempt_at": "2026-10-06T00:55:55.543Z",
+    "next_payment_attempt_at": null,
+    "checkout_configuration_id": "ch_8kwAXYcGxISYXCA",
+    "financing_installments_count": null
+  },
+  "type": "payment.succeeded",
+  "timestamp": "2026-10-06T00:55:59.564Z",
+  "account_id": "biz_3iFse5N7RWo86f",
+  "api_version": "v1",
+  "api_version_date": "2026-09-29"
+}

@@ -34,15 +34,22 @@ function useWalletToken(externalId: string) {
 }
 
 const Ready = createContext(false);
+const Reload = createContext<() => void>(() => {});
 
 export function WalletProvider({ externalId, accountId, children }: { externalId: string; accountId: string; children: ReactNode }) {
   const { token, error } = useWalletToken(externalId);
+  // Whop's wallet elements are separate iframes that don't tell each other about a payout, so
+  // after a withdrawal the balance (and the withdraw form's own "available") go stale.
+  // Remounting the Wallet makes every element refetch together.
+  const [version, setVersion] = useState(0);
   if (error) return <p className="mt-8 rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">{error}</p>;
   if (!token) return <Ready.Provider value={false}>{children}</Ready.Provider>;
   return (
     <WhopElements elements={loadWhop()} appearance={APPEARANCE}>
-      <Wallet accountId={accountId} accessToken={token.token} currency="usd">
-        <Ready.Provider value={true}>{children}</Ready.Provider>
+      <Wallet key={version} accountId={accountId} accessToken={token.token} currency="usd">
+        <Reload.Provider value={() => setVersion((v) => v + 1)}>
+          <Ready.Provider value={true}>{children}</Ready.Provider>
+        </Reload.Provider>
       </Wallet>
     </WhopElements>
   );
@@ -63,7 +70,9 @@ export function PayoutBalance() {
 }
 
 export function PayoutWithdraw() {
-  return useContext(Ready) ? <WithdrawElement /> : <Skeleton h="h-64" />;
+  const ready = useContext(Ready);
+  const reload = useContext(Reload);
+  return ready ? <WithdrawElement onDone={reload} /> : <Skeleton h="h-64" />;
 }
 
 export function PayoutActivity() {

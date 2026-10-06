@@ -1,0 +1,34 @@
+{
+  "payment.succeeded": {
+    "deliveries": 3,
+    "sample": "msg_SFXI2rzW0voEQI3VxgtDlLBX"
+  },
+  "payment.failed": {
+    "deliveries": 0,
+    "sample": null
+  },
+  "refund.created": {
+    "deliveries": 1,
+    "sample": "msg_g4jBRwDnzcXAhZsjgL5uY0Xo"
+  },
+  "dispute.created": {
+    "deliveries": 0,
+    "sample": null
+  },
+  "transfer.completed": {
+    "deliveries": 10,
+    "sample": "msg_KoQkSZVKpa16xujdngSWcbUn"
+  },
+  "payout.created": {
+    "deliveries": 1,
+    "sample": "msg_nYg8z4gbhvbKKWc0p2p5bl0T"
+  },
+  "payout.updated": {
+    "deliveries": 4,
+    "sample": "msg_Bmry2lAgnAqBbeYRlJ5jE0Gs"
+  },
+  "account.updated": {
+    "deliveries": 4,
+    "sample": "msg_9mTVGzUoTztykx4qNSE4TaOk"
+  }
+}

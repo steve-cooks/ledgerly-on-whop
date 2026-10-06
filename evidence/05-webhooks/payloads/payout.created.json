@@ -1,0 +1,42 @@
+{
+  "id": "msg_nYg8z4gbhvbKKWc0p2p5bl0T",
+  "data": {
+    "id": "wdrl_kjhEtb6Vfwcuy",
+    "notes": null,
+    "speed": "standard",
+    "amount": "10.0",
+    "object": "payout",
+    "source": "api",
+    "status": "in_review",
+    "failure": null,
+    "currency": "usd",
+    "metadata": {},
+    "created_at": "2026-10-06T03:37:59+02:00",
+    "fee_amount": "2.5",
+    "markup_fee": "0.0",
+    "net_amount": "7.5",
+    "payer_name": null,
+    "trace_code": null,
+    "fee_paid_by": "self",
+    "exchange_rate": null,
+    "payout_method": {
+      "nickname": "<redacted>",
+      "supported_payout_method": {
+        "icon_url": null,
+        "payer_name": "<redacted>",
+        "delivery_type": "bank_deposit"
+      }
+    },
+    "status_detail": "risk_review",
+    "estimated_arrival": null,
+    "payout_request_id": "cofr_bd2L2cjSdoEB1",
+    "destination_amount": null,
+    "destination_currency": "usd",
+    "statement_descriptor": null
+  },
+  "type": "payout.created",
+  "timestamp": "2026-10-06T01:38:10.781Z",
+  "account_id": "biz_9ejVCcyqXnAYeV",
+  "api_version": "v1",
+  "api_version_date": "2026-09-29"
+}

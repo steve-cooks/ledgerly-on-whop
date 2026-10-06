@@ -96,9 +96,62 @@ const transferCompleted: Handler = async ({ tx, event }) => {
     on conflict (entry_key) do nothing`;
 };
 
+const FAILED_PAYOUT = new Set(["failed", "canceled", "denied", "reversed"]);
+
+/**
+ * payout.created / payout.updated (and legacy withdrawal.*, which carry the same wdrl_ id).
+ * Whop sends several updates per payout, sometimes identical apart from the webhook id, and
+ * doesn't guarantee order. So: one row per payout, only move forward in event time, and post
+ * to the ledger once per payout (plus once more if it fails and the money comes back).
+ */
+const payoutEvent: Handler = async ({ tx, event, accountId, sellerExternalId }) => {
+  const p = event.data;
+  const id = str(p.id);
+  if (!id) return;
+  const status = str(p.status) ?? "unknown";
+  const amount = Number(p.amount ?? 0);
+  const currency = str(p.currency) ?? "usd";
+  const at = event.timestamp;
+
+  await tx`
+    insert into payouts (whop_payout_id, seller_external_id, whop_account_id, status, status_detail, amount, currency,
+                         fee_amount, net_amount, last_event_at)
+    values (${id}, ${sellerExternalId}, ${accountId ?? ""}, ${status}, ${str(p.status_detail)}, ${amount}, ${currency},
+            ${p.fee_amount == null ? null : Number(p.fee_amount)}, ${p.net_amount == null ? null : Number(p.net_amount)}, ${at})
+    on conflict (whop_payout_id) do update set
+      status = excluded.status, status_detail = excluded.status_detail, fee_amount = excluded.fee_amount,
+      net_amount = excluded.net_amount, last_event_at = excluded.last_event_at, updated_at = now()
+    where payouts.last_event_at < excluded.last_event_at`;
+
+  if (!sellerExternalId) return; // payouts by Ledgerly itself aren't seller ledger movements
+  await tx`
+    insert into ledger_entries (entry_key, seller_external_id, kind, amount, currency, whop_object_id, occurred_at)
+    values (${`payout:${id}`}, ${sellerExternalId}, 'payout', ${-amount}, ${currency}, ${id}, ${str(p.created_at) ?? at})
+    on conflict (entry_key) do nothing`;
+  if (FAILED_PAYOUT.has(status)) {
+    await tx`
+      insert into ledger_entries (entry_key, seller_external_id, kind, amount, currency, whop_object_id, occurred_at)
+      values (${`payout:${id}:reversal`}, ${sellerExternalId}, 'payout_reversal', ${amount}, ${currency}, ${id}, ${at})
+      on conflict (entry_key) do nothing`;
+  }
+};
+
+/** account.updated: mirror status (e.g. suspended) onto our seller row. */
+const accountUpdated: Handler = async ({ tx, event }) => {
+  const a = event.data;
+  const id = str(a.id);
+  if (!id) return;
+  await tx`update sellers set whop_status = ${str(a.status)}, updated_at = now() where whop_account_id = ${id}`;
+};
+
 export const handlers: Partial<Record<string, Handler>> = {
   "payment.succeeded": paymentSucceeded,
   "payment.failed": paymentFailed,
   "refund.created": refundCreated,
   "transfer.completed": transferCompleted,
+  "payout.created": payoutEvent,
+  "payout.updated": payoutEvent,
+  "withdrawal.created": payoutEvent,
+  "withdrawal.updated": payoutEvent,
+  "account.updated": accountUpdated,
 };

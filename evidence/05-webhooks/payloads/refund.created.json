@@ -1,0 +1,64 @@
+{
+  "id": "msg_g4jBRwDnzcXAhZsjgL5uY0Xo",
+  "data": {
+    "id": "rf_orWZqAstlPVIT77",
+    "amount": 10,
+    "status": "succeeded",
+    "payment": {
+      "id": "pay_9pKP6wPzCIIGKf",
+      "plan": {
+        "id": "plan_t6RUvCXHxneVH",
+        "metadata": {}
+      },
+      "user": {
+        "id": "user_1oDPcy6nYdRLz",
+        "name": "<redacted>",
+        "email": "owner@example.com",
+        "username": "<redacted>"
+      },
+      "total": 10,
+      "member": {
+        "id": "mber_7AFRdXcUv8OsQ",
+        "phone": null
+      },
+      "paid_at": "2026-10-06T00:05:07.804Z",
+      "product": {
+        "id": "prod_awN4spd5lvMwz",
+        "metadata": {}
+      },
+      "currency": "usd",
+      "metadata": {
+        "flow": "direct",
+        "ledgerly_order_id": "5011b231-da57-4761-a076-888bb0405c1a",
+        "seller_external_id": "seller_us_mira"
+      },
+      "subtotal": 10,
+      "usd_total": 10,
+      "card_brand": "amex",
+      "card_last4": "<redacted>",
+      "created_at": "2026-10-06T00:05:06.699Z",
+      "membership": {
+        "id": "mem_EertAno82rupDu",
+        "status": "completed"
+      },
+      "tax_amount": 0,
+      "tax_behavior": null,
+      "billing_reason": "one_time",
+      "dispute_alerted_at": null,
+      "payment_method_type": "card",
+      "tax_refunded_amount": 0
+    },
+    "currency": "usd",
+    "provider": "multi_psp",
+    "created_at": "2026-10-06T00:44:28.768Z",
+    "reference_type": null,
+    "reference_value": null,
+    "reference_status": null,
+    "provider_created_at": "2026-10-06T00:44:27.175Z"
+  },
+  "type": "refund.created",
+  "timestamp": "2026-10-06T00:44:28.850Z",
+  "account_id": "biz_9ejVCcyqXnAYeV",
+  "api_version": "v1",
+  "api_version_date": "2026-09-29"
+}
