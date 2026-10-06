@@ -5,6 +5,8 @@ const schema = z.object({
   WHOP_PLATFORM_ACCOUNT_ID: z.string().startsWith("biz_"),
   WHOP_WEBHOOK_SECRET: z.string().startsWith("ws_").optional(),
   DATABASE_URL: z.string().url(),
+  // Bearer token Ledgerly's backend uses to call /api/sellers, /api/checkouts, /api/reconcile.
+  ADMIN_API_TOKEN: z.string().min(32).optional(),
   // Signs the demo seller session cookie.
   SESSION_SECRET: z.string().min(32).default("dev-only-insecure-session-secret-change-me"),
   APP_URL: z.string().url().default("http://localhost:3000"),

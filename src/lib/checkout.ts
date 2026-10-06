@@ -124,13 +124,20 @@ export async function createPlatformCheckout(raw: CheckoutInput) {
  */
 const NOT_SELLER_COSTS = new Set(["application_fee", "sales_tax_remittance", "stripe_sales_tax_fee"]);
 
-export async function sellerShare(paymentId: string, gross: number, platformFeeAmount: number) {
-  const fees = await whop().payments.listFees({ id: paymentId });
-  const sellerFeeCents = fees.data
+type FeeLine = { origin: string; amount: { amount: string } };
+
+/** Pure: the seller's share given Whop's fee lines for the payment. */
+export function computeSellerShare(fees: FeeLine[], gross: number, platformFeeAmount: number) {
+  const sellerFeeCents = fees
     .filter((f) => !NOT_SELLER_COSTS.has(f.origin) && !f.origin.includes("tax"))
     .reduce((sum, f) => sum + Math.round(Number(f.amount.amount) * 100), 0);
   const shareCents = Math.round(gross * 100) - sellerFeeCents - Math.round(platformFeeAmount * 100);
-  return { share: shareCents / 100, sellerFees: sellerFeeCents / 100, fees: fees.data };
+  return { share: shareCents / 100, sellerFees: sellerFeeCents / 100 };
+}
+
+export async function sellerShare(paymentId: string, gross: number, platformFeeAmount: number) {
+  const fees = await whop().payments.listFees({ id: paymentId });
+  return { ...computeSellerShare(fees.data, gross, platformFeeAmount), fees: fees.data };
 }
 
 /**
@@ -161,4 +168,13 @@ export async function settlePlatformOrder(orderId: string) {
     orderId: order.id,
   });
   return { ...result, share, sellerFees, platformFee: Number(order.platform_fee), alreadySent: Number(sent), sentNow: dueCents / 100 };
+}
+
+/** Picks the flow from the seller's policy: 'platform' sellers never get a direct checkout. */
+export async function createCheckout(raw: CheckoutInput) {
+  const input = CheckoutInput.parse(raw);
+  const [seller] = await sql()`select collection_mode from sellers where external_id = ${input.sellerExternalId}`;
+  if (!seller) throw new Error(`unknown seller ${input.sellerExternalId}`);
+  const order = seller.collection_mode === "platform" ? await createPlatformCheckout(input) : await createDirectCheckout(input);
+  return { ...order, flow: seller.collection_mode as "direct" | "platform" };
 }
