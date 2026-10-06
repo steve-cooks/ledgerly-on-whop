@@ -13,6 +13,8 @@
     "test:integration": "docker compose -f docker-compose.test.yml up -d --wait && DATABASE_URL_TEST=postgres://postgres:postgres@localhost:54329/ledgerly_test vitest run --config vitest.integration.mts"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.2",
     "@whop/elements": "^1.8.0",
     "@whop/elements-react": "^1.8.0",
     "@whop/sdk": "^2.2.0",
