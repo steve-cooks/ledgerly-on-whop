@@ -4,13 +4,14 @@ import { useState } from "react";
 import { btnGhost } from "@/components/styles";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
-// Supabase provider ids. Whop is a custom OIDC provider configured in Supabase Auth.
+// Google goes through Supabase Auth. Whop goes through our own server (/auth/whop/start): Whop
+// requires an OIDC nonce that Supabase's custom providers don't send.
 const PROVIDERS = [
   { id: "google", label: "Continue with Google", icon: <GoogleIcon /> },
-  { id: "custom:whop", label: "Continue with Whop", icon: <WhopIcon /> },
+  { id: "whop", label: "Continue with Whop", icon: <WhopIcon /> },
 ] as const;
 
-/** Google / Whop sign-in. Supabase handles the OAuth round trip and returns to /auth/callback. */
+/** Google / Whop sign-in; both end at the seller's dashboard (or opening their store). */
 export function OAuthButtons() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -18,6 +19,12 @@ export function OAuthButtons() {
   async function go(provider: (typeof PROVIDERS)[number]["id"]) {
     setBusy(provider);
     setError(null);
+    if (provider === "whop") {
+      // A full page load on purpose: the route handler redirects off-site to Whop.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign("/auth/whop/start");
+      return;
+    }
     try {
       const { error } = await supabaseBrowser().auth.signInWithOAuth({
         provider,

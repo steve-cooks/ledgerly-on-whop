@@ -14,25 +14,39 @@ import { whop } from "./whop";
 const OAUTH = "https://api.whop.com/oauth";
 export const OPERATOR_ROLES = new Set(["owner", "admin", "manager", "support"]);
 
-export function oauthConfigured() {
-  return Boolean(env().WHOP_OAUTH_CLIENT_ID && env().WHOP_OAUTH_CLIENT_SECRET && env().SESSION_SECRET);
+/**
+ * Two Whop OAuth apps: "Ledgerly Console" for staff (console at /) and the seller-facing
+ * "Ledgerly" app for sellers on the marketplace (/sell). Each has its own client and callback.
+ */
+export type WhopApp = "console" | "seller";
+
+function app(which: WhopApp) {
+  const e = env();
+  return which === "console"
+    ? { id: e.WHOP_OAUTH_CLIENT_ID, secret: e.WHOP_OAUTH_CLIENT_SECRET, callback: `${e.APP_URL}/api/auth/whop/callback` }
+    : { id: e.WHOP_SELLER_APP_ID, secret: e.WHOP_SELLER_APP_KEY, callback: `${e.APP_URL}/auth/whop/callback` };
 }
 
-export function redirectUri() {
-  return `${env().APP_URL}/api/auth/whop/callback`;
+export function oauthConfigured(which: WhopApp = "console") {
+  const a = app(which);
+  return Boolean(a.id && a.secret && (which === "seller" || env().SESSION_SECRET));
+}
+
+export function redirectUri(which: WhopApp = "console") {
+  return app(which).callback;
 }
 
 const b64url = (buf: Buffer) => buf.toString("base64url");
-const client = () => ({ client_id: env().WHOP_OAUTH_CLIENT_ID, client_secret: env().WHOP_OAUTH_CLIENT_SECRET });
+const client = (which: WhopApp) => ({ client_id: app(which).id, client_secret: app(which).secret });
 
 /** A fresh PKCE verifier and state, and the Whop URL to send the browser to. */
-export function authorizationRequest() {
+export function authorizationRequest(which: WhopApp = "console") {
   const verifier = b64url(randomBytes(32));
   const state = b64url(randomBytes(16));
   const params = new URLSearchParams({
     response_type: "code",
-    client_id: env().WHOP_OAUTH_CLIENT_ID!,
-    redirect_uri: redirectUri(),
+    client_id: app(which).id!,
+    redirect_uri: redirectUri(which),
     scope: "openid profile email",
     state,
     nonce: b64url(randomBytes(16)),
@@ -42,19 +56,19 @@ export function authorizationRequest() {
   return { verifier, state, url: `${OAUTH}/authorize?${params}` };
 }
 
-export type WhopUser = { id: string; name: string };
+export type WhopUser = { id: string; name: string; email: string | null; emailVerified: boolean };
 
 /** Exchange the callback's code for the Whop user it belongs to. Tokens are not kept. */
-export async function userFromCode(code: string, verifier: string): Promise<WhopUser> {
+export async function userFromCode(code: string, verifier: string, which: WhopApp = "console"): Promise<WhopUser> {
   const res = await fetch(`${OAUTH}/token`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       grant_type: "authorization_code",
       code,
-      redirect_uri: redirectUri(),
+      redirect_uri: redirectUri(which),
       code_verifier: verifier,
-      ...client(),
+      ...client(which),
     }),
   });
   if (!res.ok) {
@@ -65,17 +79,22 @@ export async function userFromCode(code: string, verifier: string): Promise<Whop
 
   const info = await fetch(`${OAUTH}/userinfo`, { headers: { authorization: `Bearer ${tokens.access_token}` } });
   if (!info.ok) throw new Error(`userinfo failed (${info.status})`);
-  const u = (await info.json()) as { sub: string; name?: string; preferred_username?: string };
+  const u = (await info.json()) as { sub: string; name?: string; preferred_username?: string; email?: string; email_verified?: boolean };
 
   // We only needed their identity: revoke the refresh token so nothing long-lived is left.
   if (tokens.refresh_token) {
     await fetch(`${OAUTH}/revoke`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: tokens.refresh_token, ...client() }),
+      body: JSON.stringify({ token: tokens.refresh_token, ...client(which) }),
     }).catch(() => {});
   }
-  return { id: u.sub, name: u.name || u.preferred_username || "Ledgerly operator" };
+  return {
+    id: u.sub,
+    name: u.name || u.preferred_username || "Ledgerly operator",
+    email: u.email ?? null,
+    emailVerified: u.email_verified === true,
+  };
 }
 
 /** The user's role on Ledgerly's Whop team if it grants console access, else null. */

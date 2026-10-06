@@ -1,0 +1,78 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import "./helpers";
+
+// Sellers' "Continue with Whop": the real routes, with Whop's OAuth endpoints and Supabase Auth stubbed.
+const jar = vi.hoisted(() => new Map<string, string>());
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (k: string) => (jar.has(k) ? { value: jar.get(k) } : undefined),
+    set: (k: string, v: string) => jar.set(k, v),
+    delete: (k: string | { name: string }) => jar.delete(typeof k === "string" ? k : k.name),
+  }),
+}));
+const supa = vi.hoisted(() => ({
+  createUser: vi.fn(),
+  generateLink: vi.fn(),
+  verifyOtp: vi.fn(),
+}));
+vi.mock("@/lib/supabase/server", () => ({
+  supabaseAdmin: () => ({ auth: { admin: { createUser: supa.createUser, generateLink: supa.generateLink } } }),
+  supabaseServer: async () => ({ auth: { verifyOtp: supa.verifyOtp } }),
+}));
+
+let userinfo: Record<string, unknown>;
+const oauth = vi.fn();
+beforeEach(() => {
+  jar.clear();
+  Object.assign(process.env, { WHOP_SELLER_APP_ID: "app_seller", WHOP_SELLER_APP_KEY: "seller_secret" });
+  userinfo = { sub: "user_seller", name: "Sam Seller", email: "sam@example.com", email_verified: true };
+  oauth.mockImplementation(async (url: string) => {
+    if (url.endsWith("/oauth/token")) return Response.json({ access_token: "at" });
+    if (url.endsWith("/oauth/userinfo")) return Response.json(userinfo);
+    return new Response(null, { status: 200 });
+  });
+  vi.stubGlobal("fetch", oauth);
+  supa.createUser.mockResolvedValue({ data: {}, error: null });
+  supa.generateLink.mockResolvedValue({ data: { properties: { hashed_token: "th_1" } }, error: null });
+  supa.verifyOtp.mockResolvedValue({ data: { user: { id: "11111111-1111-1111-1111-111111111111" } }, error: null });
+});
+afterEach(() => vi.unstubAllGlobals());
+
+const digest = (p: Promise<unknown>) => p.catch((e: { digest: string }) => e.digest.split(";")[2]);
+
+async function signIn(opts: { state?: string } = {}) {
+  const start = await import("@/app/auth/whop/start/route");
+  const whopUrl = new URL((await digest(start.GET())) as string);
+  expect(whopUrl.searchParams.get("client_id")).toBe("app_seller");
+  expect(whopUrl.searchParams.get("nonce")).toBeTruthy(); // Whop requires it with openid
+  const cb = await import("@/app/auth/whop/callback/route");
+  const state = opts.state ?? whopUrl.searchParams.get("state");
+  return digest(cb.GET(new Request(`https://ledgerly.test/auth/whop/callback?code=c1&state=${state}`)));
+}
+
+describe("sellers: Continue with Whop", () => {
+  it("a Whop user with a verified email gets a session and goes on to open a store", async () => {
+    expect(await signIn()).toBe("/sell/onboard");
+    expect(supa.createUser).toHaveBeenCalledWith(expect.objectContaining({ email: "sam@example.com", email_confirm: true }));
+    expect(supa.verifyOtp).toHaveBeenCalledWith({ type: "magiclink", token_hash: "th_1" });
+    const token = JSON.parse(oauth.mock.calls.find(([u]) => u.endsWith("/oauth/token"))![1].body);
+    expect(token).toMatchObject({ client_id: "app_seller", client_secret: "seller_secret" });
+  });
+
+  it("an existing user with that email signs in to the same account", async () => {
+    supa.createUser.mockResolvedValue({ data: {}, error: new Error("A user with this email address has already been registered") });
+    expect(await signIn()).toBe("/sell/onboard");
+    expect(supa.verifyOtp).toHaveBeenCalled();
+  });
+
+  it("refuses a Whop account without a verified email", async () => {
+    userinfo.email_verified = false;
+    expect(await signIn()).toBe("/sell/login?error=whop_email");
+    expect(supa.createUser).not.toHaveBeenCalled();
+  });
+
+  it("rejects a callback whose state doesn't match", async () => {
+    expect(await signIn({ state: "forged" })).toBe("/sell/login?error=link");
+    expect(oauth).not.toHaveBeenCalled();
+  });
+});

@@ -10,6 +10,9 @@ import { OAuthButtons } from "./oauth-buttons";
 const ERRORS: Record<string, string> = {
   link: "That link has expired or was opened in a different browser. Log in to continue.",
   cancelled: "Sign-in was cancelled. Try again whenever you're ready.",
+  whop: "Whop couldn't complete the sign-in. Please try again.",
+  whop_email: "Your Whop account needs a verified email address. Verify it on Whop, then try again.",
+  unavailable: "Sign in with Whop isn't set up on this site yet.",
 };
 
 /** The sign up and log in pages. Signed-in sellers skip straight to where they belong. */
