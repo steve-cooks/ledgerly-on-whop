@@ -1,0 +1,490 @@
+{
+  "platform_child_markups": {
+    "payouts": {
+      "crypto": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        },
+        "default": {
+          "percentage": 0,
+          "fixed": {
+            "currency": "usd",
+            "amount": "0.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        },
+        "source": "default",
+        "adjustable": true,
+        "unadjustable_reason": null,
+        "maximum": {
+          "percentage": 100,
+          "fixed": {
+            "currency": "usd",
+            "amount": "100.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        }
+      },
+      "rtp": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.50",
+          "decimals": 2,
+          "display_decimals": 2
+        },
+        "default": {
+          "percentage": 0,
+          "fixed": {
+            "currency": "usd",
+            "amount": "0.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        },
+        "source": "custom",
+        "adjustable": true,
+        "unadjustable_reason": null,
+        "maximum": {
+          "percentage": 100,
+          "fixed": {
+            "currency": "usd",
+            "amount": "100.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        }
+      },
+      "next_day_bank": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        },
+        "default": {
+          "percentage": 0,
+          "fixed": {
+            "currency": "usd",
+            "amount": "0.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        },
+        "source": "default",
+        "adjustable": true,
+        "unadjustable_reason": null,
+        "maximum": {
+          "percentage": 100,
+          "fixed": {
+            "currency": "usd",
+            "amount": "100.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        }
+      },
+      "bank_wire": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        },
+        "default": {
+          "percentage": 0,
+          "fixed": {
+            "currency": "usd",
+            "amount": "0.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        },
+        "source": "default",
+        "adjustable": true,
+        "unadjustable_reason": null,
+        "maximum": {
+          "percentage": 100,
+          "fixed": {
+            "currency": "usd",
+            "amount": "100.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        }
+      },
+      "digital_wallet": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        },
+        "default": {
+          "percentage": 0,
+          "fixed": {
+            "currency": "usd",
+            "amount": "0.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        },
+        "source": "default",
+        "adjustable": true,
+        "unadjustable_reason": null,
+        "maximum": {
+          "percentage": 100,
+          "fixed": {
+            "currency": "usd",
+            "amount": "100.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        }
+      }
+    },
+    "deposits": {
+      "bank": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        },
+        "default": {
+          "percentage": 0,
+          "fixed": {
+            "currency": "usd",
+            "amount": "0.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        },
+        "source": "default",
+        "adjustable": true,
+        "unadjustable_reason": null,
+        "maximum": {
+          "percentage": 100,
+          "fixed": {
+            "currency": "usd",
+            "amount": "100.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        }
+      },
+      "crypto": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        },
+        "default": {
+          "percentage": 0,
+          "fixed": {
+            "currency": "usd",
+            "amount": "0.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        },
+        "source": "default",
+        "adjustable": true,
+        "unadjustable_reason": null,
+        "maximum": {
+          "percentage": 100,
+          "fixed": {
+            "currency": "usd",
+            "amount": "100.00",
+            "decimals": 2,
+            "display_decimals": 2
+          }
+        }
+      }
+    },
+    "transfers": {
+      "percentage": 0,
+      "fixed": {
+        "currency": "usd",
+        "amount": "0.00",
+        "decimals": 2,
+        "display_decimals": 2
+      },
+      "default": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      },
+      "source": "default",
+      "adjustable": true,
+      "unadjustable_reason": null,
+      "maximum": {
+        "percentage": 100,
+        "fixed": {
+          "currency": "usd",
+          "amount": "100.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      }
+    },
+    "crypto_swaps": {
+      "percentage": 0,
+      "fixed": {
+        "currency": "usd",
+        "amount": "0.00",
+        "decimals": 2,
+        "display_decimals": 2
+      },
+      "default": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      },
+      "source": "default",
+      "adjustable": true,
+      "unadjustable_reason": null,
+      "maximum": {
+        "percentage": 100,
+        "fixed": {
+          "currency": "usd",
+          "amount": "100.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      }
+    },
+    "payments": {
+      "percentage": 0,
+      "fixed": {
+        "currency": "usd",
+        "amount": "0.00",
+        "decimals": 2,
+        "display_decimals": 2
+      },
+      "default": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      },
+      "source": "default",
+      "adjustable": true,
+      "unadjustable_reason": null,
+      "maximum": {
+        "percentage": 100,
+        "fixed": {
+          "currency": "usd",
+          "amount": "100.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      }
+    },
+    "card_spend": {
+      "percentage": 0,
+      "fixed": {
+        "currency": "usd",
+        "amount": "0.00",
+        "decimals": 2,
+        "display_decimals": 2
+      },
+      "default": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      },
+      "source": "default",
+      "adjustable": true,
+      "unadjustable_reason": null,
+      "maximum": {
+        "percentage": 100,
+        "fixed": {
+          "currency": "usd",
+          "amount": "100.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      }
+    }
+  },
+  "mira_markups_payouts": {
+    "crypto": {
+      "percentage": 0,
+      "fixed": {
+        "currency": "usd",
+        "amount": "0.00",
+        "decimals": 2,
+        "display_decimals": 2
+      },
+      "default": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      },
+      "source": "default",
+      "adjustable": true,
+      "unadjustable_reason": null,
+      "maximum": {
+        "percentage": 100,
+        "fixed": {
+          "currency": "usd",
+          "amount": "100.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      }
+    },
+    "rtp": {
+      "percentage": 0,
+      "fixed": {
+        "currency": "usd",
+        "amount": "0.50",
+        "decimals": 2,
+        "display_decimals": 2
+      },
+      "default": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.50",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      },
+      "source": "default",
+      "adjustable": true,
+      "unadjustable_reason": null,
+      "maximum": {
+        "percentage": 100,
+        "fixed": {
+          "currency": "usd",
+          "amount": "100.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      }
+    },
+    "next_day_bank": {
+      "percentage": 0,
+      "fixed": {
+        "currency": "usd",
+        "amount": "0.00",
+        "decimals": 2,
+        "display_decimals": 2
+      },
+      "default": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      },
+      "source": "default",
+      "adjustable": true,
+      "unadjustable_reason": null,
+      "maximum": {
+        "percentage": 100,
+        "fixed": {
+          "currency": "usd",
+          "amount": "100.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      }
+    },
+    "bank_wire": {
+      "percentage": 0,
+      "fixed": {
+        "currency": "usd",
+        "amount": "0.00",
+        "decimals": 2,
+        "display_decimals": 2
+      },
+      "default": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      },
+      "source": "default",
+      "adjustable": true,
+      "unadjustable_reason": null,
+      "maximum": {
+        "percentage": 100,
+        "fixed": {
+          "currency": "usd",
+          "amount": "100.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      }
+    },
+    "digital_wallet": {
+      "percentage": 0,
+      "fixed": {
+        "currency": "usd",
+        "amount": "0.00",
+        "decimals": 2,
+        "display_decimals": 2
+      },
+      "default": {
+        "percentage": 0,
+        "fixed": {
+          "currency": "usd",
+          "amount": "0.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      },
+      "source": "default",
+      "adjustable": true,
+      "unadjustable_reason": null,
+      "maximum": {
+        "percentage": 100,
+        "fixed": {
+          "currency": "usd",
+          "amount": "100.00",
+          "decimals": 2,
+          "display_decimals": 2
+        }
+      }
+    }
+  }
+}

@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@whop/elements": "^1.8.0",
+    "@whop/elements-react": "^1.8.0",
     "@whop/sdk": "^2.2.0",
     "next": "16.3.8",
     "postgres": "^3.4.9",

@@ -5,6 +5,8 @@ const schema = z.object({
   WHOP_PLATFORM_ACCOUNT_ID: z.string().startsWith("biz_"),
   WHOP_WEBHOOK_SECRET: z.string().startsWith("ws_").optional(),
   DATABASE_URL: z.string().url(),
+  // Signs the demo seller session cookie.
+  SESSION_SECRET: z.string().min(32).default("dev-only-insecure-session-secret-change-me"),
   APP_URL: z.string().url().default("http://localhost:3000"),
   // Ledgerly's take rate, in basis points (800 = 8%).
   PLATFORM_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(800),

@@ -2,7 +2,7 @@ import { sql } from "./db";
 import { env } from "./env";
 import { whop } from "./whop";
 
-export type TransferPurpose = "order_share" | "refund_funding";
+export type TransferPurpose = "order_share" | "refund_funding" | "payout_advance";
 
 /**
  * Move money from Ledgerly's balance to a seller's connected account.

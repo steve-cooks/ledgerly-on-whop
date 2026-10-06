@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@whop/elements':
+        specifier: ^1.8.0
+        version: 1.8.0
+      '@whop/elements-react':
+        specifier: ^1.8.0
+        version: 1.8.0(@whop/elements@1.8.0)(react@19.2.8)
       '@whop/sdk':
         specifier: ^2.2.0
         version: 2.2.0
@@ -890,6 +896,15 @@ packages:
     resolution: {integrity: sha512-nAB74NfSNKknqQ1RrYj6uz8FcXEomu/MATJZxh/x+BArzN2U3JbOYC0APYzUIGhVY3m5hRxA8VPNdPBoG8txlA==}
     cpu: [x64]
     os: [win32]
+
+  '@whop/elements-react@1.8.0':
+    resolution: {integrity: sha512-S3gIRSrpbn4XjAlVy05e3lbiDS4sHugG2uaobtbMGEItDOhW/G/HJCN5ABSduAVQQdFMtdwVd6KWr3yUfYAMiw==}
+    peerDependencies:
+      '@whop/elements': ^1.8.0
+      react: ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  '@whop/elements@1.8.0':
+    resolution: {integrity: sha512-G0IjNc6VxZCvB+Ix5v/mR2huDE0bjOS8TlmFOiUB4tO0yBHAckk38zbA2QC1qs/3mDWeqyJxSmUVgp+JNWVllQ==}
 
   '@whop/sdk@2.2.0':
     resolution: {integrity: sha512-TX+1h/YcPn+hOJyQ2wIumqBA7NeKIy1y4BCHRG2TPvQMLSHnmEPemBp4vS+UG2cNX0wG4ETrtTjKTqok+XOF5g==}
@@ -2137,6 +2152,11 @@ packages:
   uri-js@4.4.1:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
 
+  use-sync-external-store@1.7.0:
+    resolution: {integrity: sha512-6L+EeigHMQhdaIPNIFUKwfWJSwWFQ8gJbJ2DLOs5sDIegTwR9fRxvnM3uciHKjIZhFz+KAv2emhWMRvDmMcY8A==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   which-boxed-primitive@1.1.1:
     resolution: {integrity: sha512-TbX3mj8n0odCBFVlY8AxkqcHASw3L60jIuF8jFP78az3C2YhmGvqbHBpAjTRH2/xqYunrJ9g1jSyjCjpoWzIAA==}
     engines: {node: '>= 0.4'}
@@ -2888,6 +2908,14 @@ snapshots:
 
   '@unrs/resolver-binding-win32-x64-msvc@1.12.2':
     optional: true
+
+  '@whop/elements-react@1.8.0(@whop/elements@1.8.0)(react@19.2.8)':
+    dependencies:
+      '@whop/elements': 1.8.0
+      react: 19.2.8
+      use-sync-external-store: 1.7.0(react@19.2.8)
+
+  '@whop/elements@1.8.0': {}
 
   '@whop/sdk@2.2.0':
     dependencies:
@@ -4427,6 +4455,10 @@ snapshots:
   uri-js@4.4.1:
     dependencies:
       punycode: 2.3.1
+
+  use-sync-external-store@1.7.0(react@19.2.8):
+    dependencies:
+      react: 19.2.8
 
   which-boxed-primitive@1.1.1:
     dependencies:
