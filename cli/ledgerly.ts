@@ -35,6 +35,10 @@ Books
   reconcile [ID] [--fix]          Diff Whop vs the local ledger for one seller or all; exit 1 on any discrepancy.
                                   --fix first syncs payout state from Whop.
 
+Checks
+  smoke                           Live checks against APP_URL that move no money: health, auth refusals,
+                                  a signed Whop test event, a replayed delivery, order + reconcile APIs
+
 Webhooks
   webhook:create                  Create the platform webhook (all sellers' events, pinned version);
                                   writes the signing secret to .env.local without printing it
@@ -173,6 +177,72 @@ const commands: Record<string, () => Promise<unknown>> = {
     if (!id) throw new Error("pass the webhook id (hook_...) or set WHOP_WEBHOOK_ID");
     const hook = await syncPlatformWebhook(id);
     print({ id: hook.id, events: hook.events, api_version_date: hook.api_version_date });
+  },
+
+  async smoke() {
+    const base = process.env.APP_URL!;
+    const admin = { authorization: `Bearer ${process.env.ADMIN_API_TOKEN}` };
+    const results: [string, boolean, string][] = [];
+    const check = async (name: string, fn: () => Promise<[boolean, string]>) => {
+      try {
+        results.push([name, ...(await fn())]);
+      } catch (err) {
+        results.push([name, false, (err as Error).message]);
+      }
+    };
+    const get = (path: string, headers: Record<string, string> = {}) => fetch(`${base}${path}`, { headers, redirect: "manual" });
+
+    await check("health", async () => {
+      const r = await get("/api/health");
+      return [r.ok, `${r.status}`];
+    });
+    await check("admin API refuses without a token", async () => {
+      const r = await get("/api/reconcile/x");
+      return [r.status === 401, `${r.status}`];
+    });
+    await check("cron refuses without its secret", async () => {
+      const r = await get("/api/cron/ops");
+      return [r.status === 401, `${r.status}`];
+    });
+    await check("webhook refuses an unsigned body", async () => {
+      const r = await fetch(`${base}/api/webhooks/whop`, { method: "POST", body: "{}" });
+      return [r.status === 401, `${r.status}`];
+    });
+    await check("operator console requires sign-in", async () => {
+      const html = await (await get("/")).text();
+      return [html.includes("Operator sign-in required"), "gate shown"];
+    });
+    await check("expired or forged sign-in link is refused", async () => {
+      const r = await get("/demo/login?t=operator.1.forged");
+      return [r.status === 401, `${r.status}`];
+    });
+    await check("Whop test event is verified and recorded", async () => {
+      const r = await whop().webhooks.test({ id: process.env.WHOP_WEBHOOK_ID!, event: "account.updated" });
+      const outcome = JSON.parse(String(r.body ?? "{}")).outcome;
+      return [r.status === 200 && ["processed", "ignored"].includes(outcome), `${r.status} ${outcome}`];
+    });
+    await check("replayed delivery is recognised as a duplicate", async () => {
+      for await (const d of await whop().webhooks.listDeliveries({ id: process.env.WHOP_WEBHOOK_ID!, first: 20 })) {
+        if (!d.success || d.replayed_from) continue;
+        const r = await whop().webhooks.replayDelivery({ id: process.env.WHOP_WEBHOOK_ID!, delivery_id: d.id });
+        const outcome = JSON.parse(String(r.body ?? "{}")).outcome;
+        return [outcome === "duplicate", `${d.event} → ${outcome}`];
+      }
+      return [false, "no delivery to replay"];
+    });
+    await check("order API answers", async () => {
+      const [o] = await sql()`select id from orders order by created_at desc limit 1`;
+      const r = await get(`/api/orders/${o.id}`, admin);
+      return [r.ok, `${r.status}`];
+    });
+    await check("reconcile API: every seller matches Whop", async () => {
+      const sellers = await sql()`select external_id from sellers where whop_account_id is not null`;
+      const reports = await Promise.all(sellers.map(async (s) => (await get(`/api/reconcile/${s.external_id}`, admin)).status));
+      return [reports.every((s) => s === 200), reports.join(",")];
+    });
+
+    for (const [name, ok, detail] of results) console.log(`${ok ? "PASS" : "FAIL"}  ${name}  (${detail})`);
+    if (results.some(([, ok]) => !ok)) process.exitCode = 1;
   },
 
   async reprocess() {
