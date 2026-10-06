@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "./helpers";
+import { db, fakeWhop } from "./helpers";
 
 // Sellers' "Continue with Whop": the real routes, with Whop's OAuth endpoints and Supabase Auth stubbed.
 const jar = vi.hoisted(() => new Map<string, string>());
@@ -74,6 +74,20 @@ describe("sellers: Continue with Whop", () => {
     expect(await signIn()).toBe("/sell/onboard");
     expect(supa.updateUserById).toHaveBeenCalledWith("u_squat", { password: expect.any(String), email_confirm: true });
     expect(supa.updateUserById.mock.invocationCallOrder[0]).toBeLessThan(supa.verifyOtp.mock.invocationCallOrder[0]);
+  });
+
+  it("a seller Ledgerly imported with that email lands on their existing store", async () => {
+    await (await db())`
+      insert into sellers (external_id, email, country, whop_account_id, title)
+      values ('seller_sam', 'sam@example.com', 'US', 'biz_sam', 'Sam Sounds')`;
+    supa.verifyOtp.mockResolvedValue({
+      data: { user: { id: "11111111-1111-1111-1111-111111111111", email: "sam@example.com", email_confirmed_at: "2026-10-01T00:00:00Z" } },
+      error: null,
+    });
+    expect(await signIn()).toBe("/sell/dashboard");
+    const links = await (await db())`select seller_external_id, store_name from seller_users`;
+    expect(links).toEqual([{ seller_external_id: "seller_sam", store_name: "Sam Sounds" }]);
+    expect(fakeWhop.accounts.create).not.toHaveBeenCalled();
   });
 
   it("refuses a Whop account without a verified email", async () => {

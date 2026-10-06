@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { supabaseAdmin, supabaseServer } from "./supabase/server";
+import type { ClaimingUser } from "./seller-accounts";
 import type { WhopUser } from "./whop-oauth";
 
 /**
@@ -11,9 +12,9 @@ import type { WhopUser } from "./whop-oauth";
  *  3. if an existing account with that email was never confirmed, anyone could have created it
  *     with a password of their choosing: wipe that password before handing it over;
  *  4. mint a one-time sign-in token for them and redeem it here, which sets the session cookies.
- * Returns the Supabase user id, or a reason the sign-in can't go ahead.
+ * Returns the signed-in Supabase user, or a reason the sign-in can't go ahead.
  */
-export async function startSellerSessionFromWhop(user: WhopUser): Promise<{ userId: string } | { error: "no_email" }> {
+export async function startSellerSessionFromWhop(user: WhopUser): Promise<{ user: ClaimingUser } | { error: "no_email" }> {
   if (!user.email || !user.emailVerified) return { error: "no_email" };
   const admin = supabaseAdmin().auth.admin;
 
@@ -40,5 +41,5 @@ export async function startSellerSessionFromWhop(user: WhopUser): Promise<{ user
     token_hash: link.data.properties.hashed_token,
   });
   if (error || !data.user) throw error ?? new Error("could not start the session");
-  return { userId: data.user.id };
+  return { user: data.user };
 }

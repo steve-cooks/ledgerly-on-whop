@@ -1,6 +1,6 @@
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
-import { sellerForUser } from "@/lib/seller-accounts";
+import { claimImportedSeller, sellerForUser } from "@/lib/seller-accounts";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 /**
  * Supabase sends sellers back here after Google / Whop sign-in (?code=, PKCE) or from the
  * email confirmation link (?code=, or ?token_hash=&type= with a custom email template).
- * Sellers with a store go to their dashboard; new ones go on to open their store.
+ * Sellers with a store go to their dashboard, as do sellers Ledgerly imported with this
+ * (verified) email; new ones go on to open their store.
  */
 export async function GET(req: Request) {
   const p = new URL(req.url).searchParams;
@@ -26,5 +27,6 @@ export async function GET(req: Request) {
   // Usually a link opened in a different browser than the one that started sign-in, or reused.
   if (error || !data.user) redirect("/sell/login?error=link");
 
-  redirect((await sellerForUser(data.user.id)) ? "/sell/dashboard" : "/sell/onboard");
+  const hasStore = (await sellerForUser(data.user.id)) || (await claimImportedSeller(data.user));
+  redirect(hasStore ? "/sell/dashboard" : "/sell/onboard");
 }

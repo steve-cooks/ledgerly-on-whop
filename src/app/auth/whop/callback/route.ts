@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { sellerForUser } from "@/lib/seller-accounts";
+import { claimImportedSeller, sellerForUser } from "@/lib/seller-accounts";
 import { userFromCode } from "@/lib/whop-oauth";
 import { startSellerSessionFromWhop } from "@/lib/whop-seller-signin";
 
@@ -32,5 +32,6 @@ async function signIn(params: URLSearchParams, pending: string | undefined) {
   const user = await userFromCode(code, verifier, "seller");
   const session = await startSellerSessionFromWhop(user);
   if ("error" in session) return "/sell/login?error=whop_email";
-  return (await sellerForUser(session.userId)) ? "/sell/dashboard" : "/sell/onboard";
+  const hasStore = (await sellerForUser(session.user.id)) || (await claimImportedSeller(session.user));
+  return hasStore ? "/sell/dashboard" : "/sell/onboard";
 }

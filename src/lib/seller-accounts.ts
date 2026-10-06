@@ -31,6 +31,48 @@ export async function supabaseSeller() {
   return user ? ((await sellerForUser(user.id))?.externalId ?? null) : null;
 }
 
+/** A Supabase user as Auth returns it: email_confirmed_at is set once the email is verified. */
+export type ClaimingUser = { id: string; email?: string | null; email_confirmed_at?: string | null };
+
+/** The signed-in Supabase user, checked with Supabase Auth (getUser), or null. */
+export async function verifiedAuthUser(): Promise<ClaimingUser | null> {
+  if (!supabaseAuthEnabled()) return null;
+  const { data } = await (await supabaseServer()).auth.getUser();
+  return data.user ?? null;
+}
+
+/**
+ * Link a signed-in user to the seller Ledgerly imported for them (console import, CLI or
+ * POST /api/sellers), so they get that store instead of opening a new one. Only when their
+ * email is verified and exactly one onboarded, unclaimed seller has it. Returns the seller's
+ * external id when this call linked it, else null (already linked, no match, or ambiguous).
+ */
+export async function claimImportedSeller(user: ClaimingUser): Promise<string | null> {
+  if (!user.email || !user.email_confirmed_at) return null;
+  const email = user.email;
+  return sql().begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtext(${"seller_users:" + user.id}))`;
+    const [linked] = await tx`select 1 from seller_users where auth_user_id = ${user.id}`;
+    if (linked) return null;
+    const matches = await tx`
+      select s.external_id, coalesce(s.title, s.external_id) as store_name
+      from sellers s
+      where lower(s.email) = lower(${email}) and s.whop_account_id is not null
+        and not exists (select 1 from seller_users su where su.seller_external_id = s.external_id)
+      limit 2`;
+    if (matches.length !== 1) return null;
+    const [seller] = matches;
+    // Another user may have claimed it a moment ago (seller_external_id is unique): re-read.
+    await tx`
+      insert into seller_users (auth_user_id, seller_external_id, store_name)
+      values (${user.id}, ${seller.external_id}, ${seller.store_name})
+      on conflict do nothing`;
+    const [mine] = await tx`
+      select 1 from seller_users where auth_user_id = ${user.id} and seller_external_id = ${seller.external_id}`;
+    return mine ? (seller.external_id as string) : null;
+  });
+}
+
 const ID_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
 export function newSellerId() {
   return "seller_" + Array.from({ length: 10 }, () => ID_CHARS[randomInt(ID_CHARS.length)]).join("");

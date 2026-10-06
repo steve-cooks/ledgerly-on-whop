@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AuthShell, MarketHeader } from "@/components/market";
 import { COUNTRY_NAMES, Page } from "@/components/ui";
-import { authUser, sellerForUser } from "@/lib/seller-accounts";
+import { authUser, claimImportedSeller, sellerForUser, verifiedAuthUser } from "@/lib/seller-accounts";
 import { OpenStoreForm } from "./open-store-form";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,9 @@ export default async function OnboardPage() {
   const user = await authUser();
   if (!user) redirect("/sell/login");
   if (await sellerForUser(user.id)) redirect("/sell/dashboard");
+  // Ledgerly may have imported this seller already: link that store rather than open a new one.
+  const verified = await verifiedAuthUser();
+  if (verified && (await claimImportedSeller(verified))) redirect("/sell/dashboard");
 
   return (
     <>
