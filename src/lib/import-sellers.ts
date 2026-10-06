@@ -26,20 +26,31 @@ export function parseCsv(text: string): string[][] {
   let row: string[] = [];
   let field = "";
   let quoted = false;
+  const endField = () => {
+    row.push(field);
+    field = "";
+  };
+  const endRow = () => {
+    endField();
+    rows.push(row);
+    row = [];
+  };
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (quoted) {
-      if (c === '"' && text[i + 1] === '"') (field += '"'), i++;
-      else if (c === '"') quoted = false;
+      if (c === '"' && text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (c === '"') quoted = false;
       else field += c;
     } else if (c === '"') quoted = true;
-    else if (c === ",") row.push(field), (field = "");
+    else if (c === ",") endField();
     else if (c === "\n" || c === "\r") {
       if (c === "\r" && text[i + 1] === "\n") i++;
-      row.push(field), rows.push(row), (row = []), (field = "");
+      endRow();
     } else field += c;
   }
-  if (field !== "" || row.length) row.push(field), rows.push(row);
+  if (field !== "" || row.length) endRow();
   return rows.filter((r) => r.some((f) => f.trim() !== ""));
 }
 
@@ -90,7 +101,10 @@ export async function importSellers(
   opts: { dryRun?: boolean; concurrency?: number; onResult?: (r: ImportResult) => void } = {},
 ) {
   const results: ImportResult[] = [];
-  const emit = (r: ImportResult) => (results.push(r), opts.onResult?.(r));
+  const emit = (r: ImportResult) => {
+    results.push(r);
+    opts.onResult?.(r);
+  };
   const existing = new Set(
     (await sql()`select external_id from sellers where whop_account_id is not null`).map((r) => r.external_id as string),
   );
