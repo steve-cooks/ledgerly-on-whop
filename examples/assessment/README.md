@@ -16,6 +16,7 @@ These scripts are tied to the demo sellers below. For day-to-day operations use 
 | Direct charge → refund | `pay_9pKP6wPzCIIGKf` → `rf_orWZqAstlPVIT77` (refund funded by `ctt_OO5NkD4qqOKBjp`) |
 | Platform sale → seller share + true-up | `pay_uTqVCEQAnsGkcp` → `ctt_vVfORKght2JL9h` + `ctt_EIx63sdXPnpfwp` |
 | **Same item** (Golden Hour Preset Pack) on Ledgerly's account → Batida's share | `pay_dyRnmqYVRjzFxt` → `ctt_7LOIGygo28FVM6` ($8.45, order `641c0fd2…`, request key `assessment-same-item-1`) |
+| Live end-to-end after the final fixes ($1, deployed code) | `pay_ANVEYgeHhTvJdl` → `ctt_Xg6k3IhfXU8vIh` ($0.51 share, sent 3s after payment; two `transfer.completed`, one ledger entry; Batida reconciles 17.41 = 17.41) |
 | Embedded-UI withdrawal | `wdrl_kjhEtb6Vfwcuy` ($10, $2.50 fee) |
 | Declined payment (real `payment.failed`) | `pay_yJ5U8t8klXTRxK` |
 | Webhook | `hook_mr4wbDzKhiXW5` |
