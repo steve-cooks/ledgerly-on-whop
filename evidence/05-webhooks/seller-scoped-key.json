@@ -1,0 +1,59 @@
+{
+  "key": {
+    "owner_account": "biz_9ejVCcyqXnAYeV",
+    "scopes": [
+      "company:basic:read",
+      "company:balance:read",
+      "payment:basic:read",
+      "company:create_child"
+    ]
+  },
+  "read_own_account": {
+    "ok": true,
+    "id": "biz_9ejVCcyqXnAYeV"
+  },
+  "read_other_seller": {
+    "ok": false,
+    "status": 404,
+    "error": {
+      "error": {
+        "type": "not_found",
+        "message": "Account not found"
+      }
+    }
+  },
+  "read_platform": {
+    "ok": false,
+    "status": 404,
+    "error": {
+      "error": {
+        "type": "not_found",
+        "message": "Account not found"
+      }
+    }
+  },
+  "list_own_payments": {
+    "ok": true,
+    "id": "(list)"
+  },
+  "create_checkout_without_scope": {
+    "ok": false,
+    "status": 403,
+    "error": {
+      "error": {
+        "type": "forbidden",
+        "message": "Company API key is not authorized for the checkout_configuration:create scope."
+      }
+    }
+  },
+  "create_account_under_connected_account": {
+    "ok": false,
+    "status": 400,
+    "error": {
+      "error": {
+        "type": "bad_request",
+        "message": "A connected account cannot create its own connected accounts"
+      }
+    }
+  }
+}
