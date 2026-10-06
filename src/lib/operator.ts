@@ -257,6 +257,12 @@ export async function setSellerFee(externalId: string, bps: number | null, chang
 }
 
 /** A seller's own fee setting: a number of bps, null for the platform default, undefined if unknown. */
+/** A seller's display name for operator messages: their title, else their id. */
+export async function sellerDisplayName(externalId: string) {
+  const [s] = await sql()`select coalesce(title, external_id) as name from sellers where external_id = ${externalId}`;
+  return (s?.name as string | undefined) ?? externalId;
+}
+
 export async function sellerFeeSetting(externalId: string) {
   const [s] = await sql()`select fee_bps from sellers where external_id = ${externalId}`;
   return s ? (s.fee_bps as number | null) : undefined;

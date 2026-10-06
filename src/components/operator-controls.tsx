@@ -1,5 +1,5 @@
 import { env } from "@/lib/env";
-import { MAX_FEE_BPS, REMINDER_COOLDOWN_MS, lastReminder, sellerFeeSetting } from "@/lib/operator";
+import { MAX_FEE_BPS, REMINDER_COOLDOWN_MS, lastReminder, sellerDisplayName, sellerFeeSetting } from "@/lib/operator";
 
 /** Operator-only controls shared by the console's seller list and a seller's status page. */
 
@@ -152,7 +152,7 @@ const MODE_NAMES = { direct: "direct charges", platform: "platform collection" }
 /** The outcome of an operator action, from the redirect's query string. */
 export async function OperatorNotice({ notice, seller, now }: { notice?: string; seller?: string; now: number }) {
   if (!notice) return null;
-  const who = seller ?? "The seller";
+  const who = seller ? await sellerDisplayName(seller) : "The seller";
   let tone: "good" | "warn" | "bad" = "good";
   let text: string;
   switch (notice) {
