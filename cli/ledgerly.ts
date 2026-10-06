@@ -9,6 +9,8 @@ import { createCheckout, settlePlatformOrder } from "@/lib/checkout";
 import { fetchPlatformPayments, reconcileSeller, repairPayouts } from "@/lib/reconcile";
 import { importSellers, parseSellersCsv, toCsv } from "@/lib/import-sellers";
 import { reprocessStored } from "@/lib/webhook-processor";
+import { refreshPendingTransfers } from "@/lib/transfers";
+import { runOpsJob } from "@/lib/ops-job";
 import { createPlatformWebhook, syncPlatformWebhook, writeWebhookSecret } from "@/lib/webhook-setup";
 import { whopErrorSummary } from "@/lib/errors";
 import { OPERATOR, signToken } from "@/lib/seller-session";
@@ -29,6 +31,11 @@ Money
   checkout --seller ID --title T --sku SKU --price 10 [--request-key K]
                                   Checkout with Ledgerly's 8%; flow follows the seller's policy
   settle [ORDER_ID]               Pay sellers for platform-collected orders (all paid orders if omitted)
+  settle ORDER_ID --replace-failed
+                                  Send a new transfer after one failed AT WHOP. Only once Whop has confirmed
+                                  the failed one is final: Whop can retry a failed transfer to success.
+  transfers:refresh               Ask Whop about transfers still pending (or failed in the last 14 days);
+                                  resend requests that never got an answer, under the same key
   trace PAY_ID                    A payment's fee lines and both accounts' balances
 
 Books
@@ -36,6 +43,7 @@ Books
                                   --fix first syncs payout state from Whop.
 
 Checks
+  ops                             Run the hourly ops job now (replay, transfers, settle, reconcile) and print its summary
   smoke                           Live checks against APP_URL that move no money: health, auth refusals,
                                   a signed Whop test event, a replayed delivery, order + reconcile APIs
 
@@ -58,6 +66,7 @@ const { values: opt, positionals: args } = parseArgs({
     title: { type: "string" },
     mode: { type: "string" },
     seller: { type: "string" },
+    "replace-failed": { type: "boolean" },
     sku: { type: "string" },
     price: { type: "string" },
     "request-key": { type: "string" },
@@ -133,7 +142,20 @@ const commands: Record<string, () => Promise<unknown>> = {
     const ids = args[0]
       ? [args[0]]
       : (await sql()`select id from orders where flow = 'platform' and status = 'paid'`).map((o) => o.id as string);
-    for (const id of ids) print({ order: id, ...(await settlePlatformOrder(id)) });
+    if (opt["replace-failed"] && !args[0]) throw new Error("--replace-failed needs an ORDER_ID");
+    for (const id of ids) print({ order: id, ...(await settlePlatformOrder(id, { replaceFailed: opt["replace-failed"] })) });
+  },
+
+  async "transfers:refresh"() {
+    const r = await refreshPendingTransfers({ olderThanMinutes: 0 });
+    print(r);
+    if (r.errors.length) process.exitCode = 1;
+  },
+
+  async ops() {
+    const r = await runOpsJob();
+    print(r);
+    if (!r.ok) process.exitCode = 1;
   },
 
   async trace() {
@@ -248,7 +270,9 @@ const commands: Record<string, () => Promise<unknown>> = {
   async reprocess() {
     // `reprocess` alone retries deferred/failed events; `reprocess TYPE` re-applies every stored
     // event of that type (handlers are idempotent).
-    print(await reprocessStored({ type: args[0] }));
+    const r = await reprocessStored({ type: args[0] });
+    print(r);
+    if (r.failed.length) process.exitCode = 1;
   },
 };
 
