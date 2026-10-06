@@ -35,7 +35,7 @@ Each run (`/api/cron/ops`) retries deferred and failed webhook events, settles t
 | `kind` / `problem` | Usually means | Do this |
 | --- | --- | --- |
 | payment `missing_locally` | We never stored the payment event | Check deliveries (below); replay from Whop if needed |
-| payment `state_mismatch` | Usually a refund we haven't applied (Whop shows it refunded) | `pnpm ledgerly reprocess` (deferred events), else replay `refund.*` events from Whop |
+| payment `state_mismatch` | Usually a refund we haven't applied (Whop shows it refunded), or a missed `payment.succeeded` (Whop paid, ours pending) | `pnpm ledgerly reprocess` (deferred events), else replay that payment's `refund.*` or `payment.succeeded` from Whop |
 | transfer `state_mismatch` | Transfer completed or failed without a webhook | `pnpm ledgerly transfers:refresh` (the hourly run does the same) |
 | payout `state_mismatch` | Whop skipped the payout's final webhook (seen in production) | `pnpm ledgerly reconcile --fix` |
 | obligation `unsettled` / `underpaid` | A platform-collected seller hasn't been paid in full | `pnpm ledgerly settle <order>`; if it says "in flight", wait for the transfer |

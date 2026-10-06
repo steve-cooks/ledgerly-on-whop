@@ -221,12 +221,13 @@ export async function applyPayout(tx: Tx, p: Obj, at: string, accountId: string 
   // The upsert also locks the payout row, so two events for one payout post one at a time.
   const accepted = await tx`
     insert into payouts (whop_payout_id, seller_external_id, whop_account_id, status, status_detail, amount, currency,
-                         fee_amount, net_amount, last_event_at)
+                         fee_amount, net_amount, last_event_at, updated_at)
     values (${id}, ${sellerExternalId}, ${accountId ?? ""}, ${status}, ${str(p.status_detail)}, ${amount}, ${currency},
-            ${p.fee_amount == null ? null : Number(p.fee_amount)}, ${p.net_amount == null ? null : Number(p.net_amount)}, ${at})
+            ${p.fee_amount == null ? null : Number(p.fee_amount)}, ${p.net_amount == null ? null : Number(p.net_amount)}, ${at}, clock_timestamp())
     on conflict (whop_payout_id) do update set
       status = excluded.status, status_detail = excluded.status_detail, amount = excluded.amount,
-      fee_amount = excluded.fee_amount, net_amount = excluded.net_amount, last_event_at = excluded.last_event_at, updated_at = now()
+      fee_amount = excluded.fee_amount, net_amount = excluded.net_amount, last_event_at = excluded.last_event_at,
+      updated_at = clock_timestamp() -- wall-clock write time; payout repair compares against it
     where payouts.last_event_at < excluded.last_event_at
     returning whop_payout_id`;
   if (accepted.length === 0 || !sellerExternalId) return;

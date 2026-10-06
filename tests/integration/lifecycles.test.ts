@@ -160,6 +160,17 @@ describe("payout repair (reconcile --fix)", () => {
     expect((await (await db())`select count(*)::int n from ledger_entries where kind = 'payout'`)[0].n).toBe(1);
   });
 
+  it("books returned funds even when Whop's status didn't change and no webhook came", async () => {
+    const { repairPayouts } = await import("@/lib/reconcile");
+    await seed();
+    const failed = remote("failed", { failure: { funds_returned_at: null } });
+    await deliver({ type: "payout.updated", account_id: "biz_seller_us", timestamp: "2026-10-06T00:00:01Z", data: failed });
+    await age();
+    fakeWhop.payouts.list.mockResolvedValue([{ ...failed, failure: { funds_returned_at: "2026-10-06T01:00:00Z" } }]);
+    expect(await repairPayouts("seller_us")).toBe(1);
+    expect(Number((await (await db())`select sum(amount) s from ledger_entries where whop_object_id = 'wdrl_1'`)[0].s)).toBe(0);
+  });
+
   it("never moves a payout backwards", async () => {
     const { repairPayouts } = await import("@/lib/reconcile");
     await seed();

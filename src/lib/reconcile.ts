@@ -1,7 +1,7 @@
 import { sql } from "./db";
 import { env } from "./env";
 import { transferState } from "./transfers";
-import { applyPayout } from "./webhook-handlers";
+import { applyPayout, payoutDebit } from "./webhook-handlers";
 import { whop } from "./whop";
 
 /**
@@ -233,7 +233,7 @@ export async function repairPayouts(externalId: string) {
   const db = sql();
   const [seller] = await db`select * from sellers where external_id = ${externalId}`;
   if (!seller?.whop_account_id) return 0;
-  const [{ now: readStartedAt }] = await db`select now()`;
+  const [{ t: readStartedAt }] = await db`select clock_timestamp() as t`;
   const payouts = (await all(await whop().payouts.list({ account_id: seller.whop_account_id, first: 100 }))) as unknown as Record<string, unknown>[];
   let repaired = 0;
   for (const p of payouts) {
@@ -241,8 +241,16 @@ export async function repairPayouts(externalId: string) {
       const [local] = await tx`select * from payouts where whop_payout_id = ${String(p.id)} for update`;
       if (local) {
         if (new Date(local.updated_at) >= new Date(readStartedAt)) return;
-        const same = local.status === p.status && local.status_detail === p.status_detail && cents(Number(local.amount)) === cents(Number(p.amount));
-        if (same || (PAYOUT_RANK[String(p.status)] ?? 0) < (PAYOUT_RANK[local.status] ?? 0)) return;
+        if ((PAYOUT_RANK[String(p.status)] ?? 0) < (PAYOUT_RANK[local.status] ?? 0)) return;
+        // Unchanged only if the row AND its ledger debit match (funds can return with no status change).
+        const fundsReturnedAt = ((p.failure ?? {}) as { funds_returned_at?: string | null }).funds_returned_at;
+        const target = -payoutDebit({ status: String(p.status), amount: Number(p.amount), fundsReturnedAt });
+        const [{ posted }] = await tx`
+          select coalesce(sum(amount), 0)::numeric as posted from ledger_entries
+          where whop_object_id = ${String(p.id)} and kind in ('payout', 'payout_reversal')`;
+        const same = local.status === p.status && local.status_detail === p.status_detail &&
+          cents(Number(local.amount)) === cents(Number(p.amount)) && cents(Number(posted)) === cents(target);
+        if (same) return;
       }
       // Stamp it newer than anything recorded so applyPayout accepts it.
       const at = new Date(Math.max(Date.now(), local ? new Date(local.last_event_at).getTime() + 1 : 0)).toISOString();

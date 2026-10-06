@@ -64,10 +64,11 @@ export async function processEvent(webhookId: string, event: WhopEvent, opts: { 
  * is isolated: one that keeps failing is reported, and the rest still run.
  */
 export async function reprocessStored(opts: { type?: string; force?: boolean; deadline?: number; limit?: number } = {}) {
-  const limit = opts.limit ?? 500;
+  // Unprocessed events least-tried first, so ones that keep failing don't starve the rest.
   const rows = opts.type
-    ? await sql()`select webhook_id, type, payload from webhook_events where type = ${opts.type} order by received_at limit ${limit}`
-    : await sql()`select webhook_id, type, payload from webhook_events where processed_at is null order by received_at limit ${limit}`;
+    ? await sql()`select webhook_id, type, payload from webhook_events where type = ${opts.type} order by received_at`
+    : await sql()`select webhook_id, type, payload from webhook_events where processed_at is null
+                  order by attempts, received_at limit ${opts.limit ?? 500}`;
   const outcomes: Record<string, number> = {};
   const failed: { webhook_id: string; type: string; error: string }[] = [];
   let attempted = 0;

@@ -67,8 +67,7 @@ export async function runOpsJob() {
           and (o.seller_share is null or o.seller_share > coalesce((
             select sum(t.amount) from seller_transfers t
             where t.order_id = o.id and t.purpose = 'order_share' and t.status = 'completed'), 0))
-        order by o.created_at
-        limit 500`;
+        order by o.created_at`;
       const settled: { order: string; result: unknown }[] = [];
       summary.settled = settled;
       for (const o of outstanding) {

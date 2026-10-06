@@ -159,15 +159,14 @@ export async function applyTransferState(
  *  - failed with a Whop id, for two weeks: Whop may still retry it to success.
  * Each transfer is isolated: one error is reported and the rest still run.
  */
-export async function refreshPendingTransfers(opts: { olderThanMinutes?: number; deadline?: number; limit?: number } = {}) {
+export async function refreshPendingTransfers(opts: { olderThanMinutes?: number; deadline?: number } = {}) {
   const db = sql();
   const rows = await db`
     select * from seller_transfers
     where updated_at < now() - make_interval(mins => ${opts.olderThanMinutes ?? 5})
       and (status = 'pending'
            or (status = 'failed' and whop_transfer_id is not null and created_at > now() - interval '14 days'))
-    order by (status = 'pending') desc, updated_at
-    limit ${opts.limit ?? 200}`;
+    order by (status = 'pending') desc, updated_at`;
   const changed: { key: string; status: string }[] = [];
   const errors: string[] = [];
   let checked = 0;
