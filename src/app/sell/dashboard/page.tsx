@@ -41,7 +41,7 @@ export default async function DashboardPage() {
       ? { tone: "neutral" as const, label: "Unavailable", note: "We couldn't reach Whop just now. Refresh in a moment." }
       : verified
         ? { tone: "good" as const, label: "Verified", note: "You're all set to sell and get paid." }
-        : { tone: "warn" as const, label: "Action needed", note: "Finish verifying your identity with Whop so buyers can pay you." };
+        : { tone: "warn" as const, label: "Action needed", note: "You can sell now. Finish verifying your identity with Whop to withdraw your earnings." };
 
   return (
     <>
