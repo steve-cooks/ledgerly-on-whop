@@ -6,14 +6,19 @@ import { env } from "./env";
  * DEMO sign-in, standing in for Ledgerly's real auth. Replace currentSeller()/isOperator() with
  * checks against Ledgerly's own session when integrating (see HANDOVER.md).
  *
- * A token names a subject (a seller's external id, or "operator") and an expiry, signed with
- * SESSION_SECRET. Sign-in links and the session cookie are both such tokens, so a copied link
- * stops working when it expires. Disabled unless DEMO_LOGIN_ENABLED=true and a secret is set.
+ * A token is a signed {purpose, subject, expiry}. The subject is a seller's external id or
+ * "operator". A sign-in link ("link", 24h) can only start a session; a session cookie
+ * ("session", 8h) can only be used as a session. So a link can't be used as a cookie, and a
+ * session can't be exchanged for a new one: every session ends 8h after its link was used.
+ * Links are reusable until they expire (demo convenience). Disabled unless
+ * DEMO_LOGIN_ENABLED=true and SESSION_SECRET is set.
  */
 const COOKIE = "ledgerly_session";
 export const OPERATOR = "operator";
-const LINK_TTL_S = 60 * 60 * 24; // a sign-in link is valid for 24h
-const SESSION_TTL_S = 60 * 60 * 8; // a session lasts 8h
+const LINK_TTL_S = 60 * 60 * 24;
+const SESSION_TTL_S = 60 * 60 * 8;
+
+type Purpose = "link" | "session";
 
 function secret() {
   const { DEMO_LOGIN_ENABLED, SESSION_SECRET } = env();
@@ -25,33 +30,36 @@ function sign(payload: string, key: string) {
   return createHmac("sha256", key).update(payload).digest("base64url");
 }
 
-export function signToken(subject: string, ttlSeconds = LINK_TTL_S) {
+export function signToken(subject: string, purpose: Purpose = "link") {
   const key = secret();
   if (!key) throw new Error("demo sign-in is disabled (set DEMO_LOGIN_ENABLED=true and SESSION_SECRET)");
-  const payload = `${subject}.${Math.floor(Date.now() / 1000) + ttlSeconds}`;
+  const ttl = purpose === "link" ? LINK_TTL_S : SESSION_TTL_S;
+  const payload = Buffer.from(JSON.stringify({ p: purpose, s: subject, e: Math.floor(Date.now() / 1000) + ttl })).toString("base64url");
   return `${payload}.${sign(payload, key)}`;
 }
 
-/** The token's subject if the signature is valid and it hasn't expired, else null. */
-export function verifyToken(token: string): string | null {
+/** The token's subject if it's signed, unexpired and issued for `purpose`; else null. */
+export function verifyToken(token: string, purpose: Purpose): string | null {
   const key = secret();
-  const parts = token.split(".");
-  if (!key || parts.length < 3) return null;
-  const sig = parts.pop()!;
-  const exp = Number(parts.pop());
-  const subject = parts.join(".");
+  const [payload, sig, extra] = token.split(".");
+  if (!key || !payload || !sig || extra !== undefined) return null;
   const a = Buffer.from(sig);
-  const b = Buffer.from(sign(`${subject}.${exp}`, key));
+  const b = Buffer.from(sign(payload, key));
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  if (!Number.isFinite(exp) || exp < Date.now() / 1000) return null;
-  return subject;
+  try {
+    const t = JSON.parse(Buffer.from(payload, "base64url").toString()) as { p?: string; s?: string; e?: number };
+    if (t.p !== purpose || typeof t.s !== "string" || typeof t.e !== "number" || t.e < Date.now() / 1000) return null;
+    return t.s;
+  } catch {
+    return null;
+  }
 }
 
-/** Exchange a sign-in link token for a fresh short session cookie. */
+/** Exchange a sign-in link for a session cookie that ends 8h from now. */
 export async function startSession(linkToken: string) {
-  const subject = verifyToken(linkToken);
+  const subject = verifyToken(linkToken, "link");
   if (!subject) return null;
-  (await cookies()).set(COOKIE, signToken(subject, SESSION_TTL_S), {
+  (await cookies()).set(COOKIE, signToken(subject, "session"), {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
@@ -63,7 +71,7 @@ export async function startSession(linkToken: string) {
 
 async function subject() {
   const token = (await cookies()).get(COOKIE)?.value;
-  return token ? verifyToken(token) : null;
+  return token ? verifyToken(token, "session") : null;
 }
 
 /** The signed-in seller's external id, or null (operators are not sellers). */
