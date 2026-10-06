@@ -11,6 +11,7 @@ import { importSellers, parseSellersCsv, toCsv } from "@/lib/import-sellers";
 import { reprocessStored } from "@/lib/webhook-processor";
 import { refreshPendingTransfers } from "@/lib/transfers";
 import { runOpsJob } from "@/lib/ops-job";
+import { syncSellerVerification } from "@/lib/operator";
 import { createPlatformWebhook, syncPlatformWebhook, writeWebhookSecret } from "@/lib/webhook-setup";
 import { whopErrorSummary } from "@/lib/errors";
 import { OPERATOR, signToken } from "@/lib/seller-session";
@@ -25,6 +26,8 @@ Sellers
   import-sellers FILE.csv [--dry-run] [--out results.csv] [--concurrency 3]
                                   Bulk-migrate sellers (columns: external_id,email,country,title,collection_mode).
                                   Idempotent: re-run the same file to resume.
+  sellers:sync [ID]               Refresh the local verification mirror (status, open actions, title) from Whop,
+                                  for one seller or all; the operator console's seller list reads it
   login-link ID|--operator        Demo-only sign-in link (24h): a seller's Seller Hub, or the operator console
 
 Money
@@ -117,6 +120,13 @@ const commands: Record<string, () => Promise<unknown>> = {
       errors: count("error"),
     });
     if (count("error")) process.exitCode = 1;
+  },
+
+  async "sellers:sync"() {
+    const r = await syncSellerVerification({ externalId: args[0] });
+    for (const e of r.errors) console.error(e);
+    print({ synced: r.synced, errors: r.errors.length });
+    if (r.errors.length) process.exitCode = 1;
   },
 
   async "login-link"() {

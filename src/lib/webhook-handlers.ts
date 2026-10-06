@@ -1,4 +1,5 @@
 import { DeferredEvent } from "./errors";
+import { applyAccountSnapshot } from "./operator";
 import { applyTransferState } from "./transfers";
 import type { Handler, Tx } from "./webhooks";
 
@@ -249,12 +250,12 @@ export async function applyPayout(tx: Tx, p: Obj, at: string, accountId: string 
 
 // ── Accounts ────────────────────────────────────────────────────────────────────────────────
 
-/** account.updated: mirror status (e.g. suspended) onto our seller row. */
-const accountUpdated: Handler = async ({ tx, event }) => {
-  const id = str(event.data.id);
-  if (!id) return;
-  await tx`update sellers set whop_status = ${str(event.data.status)}, updated_at = now() where whop_account_id = ${id}`;
-};
+/**
+ * account.updated: mirror status (e.g. suspended), title and verification state onto our seller
+ * row, so the operator console can list who needs verification without calling Whop. An older
+ * event never overwrites a newer snapshot.
+ */
+const accountUpdated: Handler = ({ tx, event }) => applyAccountSnapshot(tx, event.data, event.timestamp);
 
 export const handlers: Partial<Record<string, Handler>> = {
   "payment.succeeded": paymentSucceeded,

@@ -1,19 +1,25 @@
 import { sql } from "./db";
 import { env } from "./env";
 import { settlePlatformOrder } from "./checkout";
+import { syncSellerVerification } from "./operator";
 import { fetchPlatformPayments, reconcileSeller, repairPayouts } from "./reconcile";
 import { refreshPendingTransfers } from "./transfers";
 import { reprocessStored } from "./webhook-processor";
 
 // Stop starting new work well before the route's 300s ceiling; the next run resumes.
 const TIME_BUDGET_MS = 240_000;
+// The verification mirror is a convenience: a small slice per run leaves reconcile the budget.
+const VERIFICATION_SYNC_LIMIT = 100;
+const VERIFICATION_SYNC_MS = 30_000;
 
 /**
  * The scheduled operations run, in order of what costs least and matters most:
  *  1. retry webhook events that were deferred or failed;
  *  2. settle transfers webhooks haven't (poll Whop; resend unanswered requests, same key);
  *  3. settle platform orders that still owe the seller something;
- *  4. sync payouts and reconcile sellers, resuming after the last seller the previous run
+ *  4. refresh the verification mirror for the least recently synced sellers (bounded; webhooks
+ *     keep it current, this backfills and covers missed events);
+ *  5. sync payouts and reconcile sellers, resuming after the last seller the previous run
  *     reached, until the time budget runs out.
  * Every stage, and every item inside one, is isolated: a failure is recorded and the run moves
  * on. The run is always recorded in job_runs and alerts when anything is off, when it ran out
@@ -82,6 +88,14 @@ export async function runOpsJob() {
         }
       }
     });
+
+    const verification = await stage("sync seller verification", () =>
+      syncSellerVerification({ limit: VERIFICATION_SYNC_LIMIT, deadline: Math.min(deadline, Date.now() + VERIFICATION_SYNC_MS) }),
+    );
+    if (verification) {
+      summary.verification = { synced: verification.synced, errors: verification.errors.length };
+      if (verification.errors.length) problems.push(`verification sync: ${verification.errors.length} sellers failed (first: ${verification.errors[0]})`);
+    }
 
     await stage("reconcile", async () => {
       // Sellers in a stable order, continuing after where the last run stopped.
