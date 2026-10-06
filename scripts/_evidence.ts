@@ -8,6 +8,7 @@ const PERSONAL_KEYS = new Set([
   "payer_name", "name", "username", "first_name", "last_name", "middle_name", "date_of_birth",
   "phone", "customer_phone", "line1", "line2", "postal_code", "billing_address", "shipping_address",
   "profile_picture", "statement_descriptor", "nickname", "trace_code",
+  "issuer_identification_number", "last4", "exp_month", "exp_year", "display_name",
 ]);
 
 /** JSON with emails and personal fields replaced, so evidence can live in a public repo. */
