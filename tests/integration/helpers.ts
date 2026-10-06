@@ -58,7 +58,7 @@ export async function seed(opts: { flow?: "direct" | "platform"; status?: string
     insert into orders (seller_external_id, flow, title, amount, currency, platform_fee, status, whop_payment_id)
     values (${external}, ${flow}, 'Preset Pack', ${amount}, 'usd', ${Math.round(amount * 8) / 100}, ${opts.status ?? "pending"}, ${opts.paymentId ?? null})
     returning *`;
-  return { order, external, account };
+  return { order: order as { id: string } & Record<string, unknown>, external, account };
 }
 
 export function paymentEvent(type: string, order: { id: string }, paymentId: string, account: string, extra: Record<string, unknown> = {}) {
