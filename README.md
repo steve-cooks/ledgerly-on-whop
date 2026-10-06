@@ -75,7 +75,7 @@ flowchart LR
 | [`cli/ledgerly.ts`](cli/ledgerly.ts) | The `pnpm ledgerly` operations CLI |
 | [`src/lib/import-sellers.ts`](src/lib/import-sellers.ts) | Bulk seller migration from CSV |
 | [`src/lib/ops-job.ts`](src/lib/ops-job.ts) | Hourly job: retry deferred events, refresh in-flight transfers, settle, sync verification, sync payouts, reconcile, alert |
-| [`src/lib/operator.ts`](src/lib/operator.ts) | Operator console: verification mirror, seller list, reminders, payment mode |
+| [`src/lib/operator.ts`](src/lib/operator.ts) | Operator console: verification mirror, seller list, reminders, payment mode, per-seller fee |
 | [`src/lib/whop-oauth.ts`](src/lib/whop-oauth.ts) | Sign in with Whop (staff and seller apps), Ledgerly team check |
 | [`src/lib/seller-session.ts`](src/lib/seller-session.ts) | Session cookies, `currentSeller()`, `isOperator()` |
 | [`src/lib/seller-accounts.ts`](src/lib/seller-accounts.ts), [`whop-seller-signin.ts`](src/lib/whop-seller-signin.ts) | Demo marketplace: seller sign-in (Supabase Auth), opening a store |
