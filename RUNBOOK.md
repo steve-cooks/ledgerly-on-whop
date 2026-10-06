@@ -166,7 +166,7 @@ The list reads a local mirror, not Whop. `account.updated` keeps it current, and
 
 ## Suspend a seller
 
-`POST /accounts/{id}/suspend` with Ledgerly's API key (or Whop dashboard → Sub accounts). An `account.updated` webhook records the new status. There is no un-suspend endpoint; contact Whop.
+`POST /accounts/{id}/suspend` with Ledgerly's API key (or Whop dashboard → Sub accounts). An `account.updated` webhook records the new status. There is no un-suspend endpoint; contact Whop. To get rid of a test or mistaken account entirely, remove it in Whop's dashboard (Sub accounts → the account → remove), then delete its `sellers` row if Ledgerly has one.
 
 ---
 
