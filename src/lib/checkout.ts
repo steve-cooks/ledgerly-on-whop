@@ -81,18 +81,24 @@ type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-exp
 
 async function finishCheckout(order: Row, seller: Row) {
   const direct = order.flow === "direct";
+  const accountId: string = direct ? seller.whop_account_id : env().WHOP_PLATFORM_ACCOUNT_ID;
+  const externalId = `ledgerly-${order.sku}`;
+  // The first sale of a SKU on an account creates its Whop product inline; later ones must
+  // reference it by id (re-sending the inline product to a seller's account is refused).
+  const productId = await findWhopProduct(accountId, externalId);
   const checkout = await whop().checkoutConfigurations.create(
     {
-      account_id: direct ? seller.whop_account_id : env().WHOP_PLATFORM_ACCOUNT_ID,
+      account_id: accountId,
       plan: {
         plan_type: "one_time",
         initial_price: Number(order.amount),
         currency: order.currency,
         visibility: "hidden",
+        ...(productId ? { product_id: productId } : {}),
         // Legacy fields the current SDK types don't include; Whop still honours them, and
         // product.external_identifier is required alongside product.
         ...({
-          product: { title: order.title, external_identifier: `ledgerly-${order.sku}` },
+          ...(productId ? {} : { product: { title: order.title, external_identifier: externalId } }),
           ...(direct ? { application_fee_amount: Number(order.platform_fee) } : {}),
         } as object),
       },
@@ -101,10 +107,50 @@ async function finishCheckout(order: Row, seller: Row) {
     },
     { idempotencyKey: `ledgerly:checkout:${order.id}` },
   );
+  if (!productId) await rememberWhopProduct(accountId, externalId, (checkout as { plan?: { id?: string } }).plan?.id);
   const [saved] = await sql()`
     update orders set checkout_configuration_id = ${checkout.id}, purchase_url = ${checkout.purchase_url ?? null}, updated_at = now()
     where id = ${order.id} returning *`;
   return orderResult(saved);
+}
+
+/** Our SKU's Whop product on this account: saved mapping first, then a lookup at Whop. */
+async function findWhopProduct(accountId: string, externalId: string): Promise<string | null> {
+  const [known] = await sql()`
+    select whop_product_id from whop_products where account_id = ${accountId} and external_identifier = ${externalId}`;
+  if (known) return known.whop_product_id;
+  try {
+    let seen = 0;
+    for await (const p of await whop().products.list({ account_id: accountId, first: 100 })) {
+      const product = p as { id: string; external_identifier?: string | null };
+      if (product.external_identifier === externalId) {
+        await saveWhopProduct(accountId, externalId, product.id);
+        return product.id;
+      }
+      if (++seen >= 500) break;
+    }
+  } catch (err) {
+    console.error("whop product lookup failed", accountId, (err as Error).message);
+  }
+  return null;
+}
+
+/** After a checkout created the product inline, remember its id. Best effort: a miss is found by lookup next time. */
+async function rememberWhopProduct(accountId: string, externalId: string, planId: string | undefined) {
+  if (!planId) return;
+  try {
+    const plan = (await whop().plans.retrieve({ id: planId })) as { product?: { id?: string } | null };
+    if (plan.product?.id) await saveWhopProduct(accountId, externalId, plan.product.id);
+  } catch (err) {
+    console.error("whop product remember failed", accountId, (err as Error).message);
+  }
+}
+
+async function saveWhopProduct(accountId: string, externalId: string, productId: string) {
+  await sql()`
+    insert into whop_products (account_id, external_identifier, whop_product_id)
+    values (${accountId}, ${externalId}, ${productId})
+    on conflict do nothing`;
 }
 
 function orderResult(order: Row) {

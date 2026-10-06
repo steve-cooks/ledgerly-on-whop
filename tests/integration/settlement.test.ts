@@ -176,6 +176,32 @@ describe("idempotent checkout and onboarding", () => {
     expect(new Set(fakeWhop.checkoutConfigurations.create.mock.calls.map((c) => c[1].idempotencyKey)).size).toBe(1);
   });
 
+  it("the second sale of a product reuses its Whop product by id (Whop refuses re-sending it inline)", async () => {
+    const { createCheckout } = await import("@/lib/checkout");
+    await seed();
+    fakeWhop.checkoutConfigurations.create
+      .mockResolvedValueOnce({ id: "ch_1", purchase_url: "u1", plan: { id: "plan_1" } })
+      .mockResolvedValueOnce({ id: "ch_2", purchase_url: "u2", plan: { id: "plan_2" } });
+    fakeWhop.plans.retrieve.mockResolvedValue({ product: { id: "prod_1" } });
+    const sale = { sellerExternalId: "seller_us", title: "Preset Pack", sku: "preset-pack", price: 10 };
+    await createCheckout(sale);
+    await createCheckout(sale);
+    const [first, second] = fakeWhop.checkoutConfigurations.create.mock.calls.map((c) => c[0].plan);
+    expect(first.product).toMatchObject({ external_identifier: "ledgerly-preset-pack" });
+    expect(first.product_id).toBeUndefined();
+    expect(second).toMatchObject({ product_id: "prod_1", application_fee_amount: 0.8 });
+    expect(second.product).toBeUndefined();
+  });
+
+  it("a product that already exists at Whop is found by its reference", async () => {
+    const { createCheckout } = await import("@/lib/checkout");
+    await seed();
+    fakeWhop.products.list.mockResolvedValue([{ id: "prod_other", external_identifier: "ledgerly-other" }, { id: "prod_old", external_identifier: "ledgerly-preset-pack" }]);
+    fakeWhop.checkoutConfigurations.create.mockResolvedValue({ id: "ch_1", purchase_url: "u1" });
+    await createCheckout({ sellerExternalId: "seller_us", title: "Preset Pack", sku: "preset-pack", price: 10 });
+    expect(fakeWhop.checkoutConfigurations.create.mock.calls[0][0].plan).toMatchObject({ product_id: "prod_old" });
+  });
+
   it("a direct checkout carries the 8% application fee; a platform seller's never does", async () => {
     const { createCheckout } = await import("@/lib/checkout");
     await seed();
