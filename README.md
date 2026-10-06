@@ -230,6 +230,7 @@ All admin endpoints take `Authorization: Bearer $ADMIN_API_TOKEN`. Errors: `400`
 | `POST` | `/api/webhooks/whop` | Whop webhook | `{ outcome: processed \| duplicate \| ignored \| deferred }` |
 | `GET` | `/api/sellers/:id/wallet-token` | (seller session) | `{ token, expiresAt }` |
 | `GET` | `/api/sellers/:id/payouts-portal` | (seller session) | Redirect to Whop's hosted portal |
+| `GET` | `/api/sellers/:id/onboarding-link` | (seller session) | Redirect to a fresh Whop onboarding link (the "Continue verification" / "Get a new link" button on `/sellers/:id`) |
 
 ```bash
 curl -X POST "$APP_URL/api/sellers" -H "Authorization: Bearer $ADMIN_API_TOKEN" \

@@ -37,7 +37,7 @@ export default async function SellerPage({
               title={onboarding === "refresh" ? "This link expired" : "Thanks, your details were submitted"}
               description={
                 onboarding === "refresh"
-                  ? "Ask Ledgerly for a new onboarding link."
+                  ? "Sign in to your Ledgerly seller account to get a new one."
                   : "Whop is reviewing them. Your verification status appears in your Ledgerly seller dashboard."
               }
             />
@@ -49,6 +49,8 @@ export default async function SellerPage({
   const s = await getSellerOverview(externalId);
   if (!s) notFound();
   const verified = s.identity === "approved";
+  const isSeller = (await currentSeller()) === externalId;
+  const needsVerification = !verified || s.requiredActions.length > 0;
 
   return (
     <>
@@ -62,7 +64,7 @@ export default async function SellerPage({
           )}
           {onboarding === "refresh" && (
             <p className="rounded-xl bg-warn-soft px-4 py-3 text-sm text-warn">
-              That onboarding link expired. Ask Ledgerly for a fresh one.
+              That onboarding link expired. {isSeller ? "Get a new one below." : "The seller can get a new one from this page."}
             </p>
           )}
 
@@ -81,6 +83,14 @@ export default async function SellerPage({
             <p className="text-sm">
               Status: <span className="font-medium">{s.identity.replace("_", " ")}</span>
             </p>
+            {isSeller && needsVerification && (
+              <a
+                href={`/api/sellers/${encodeURIComponent(externalId)}/onboarding-link`}
+                className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition hover:bg-accent-ink"
+              >
+                {onboarding === "refresh" ? "Get a new link" : "Continue verification on Whop"} ↗
+              </a>
+            )}
           </Card>
 
           <Card title="Required actions">
