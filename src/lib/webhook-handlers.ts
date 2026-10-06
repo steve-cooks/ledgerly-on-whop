@@ -28,21 +28,27 @@ const paymentSucceeded: Handler = async (ctx) => {
   const order = await findOrder(ctx, p);
   if (!order) return; // not a Ledgerly order (e.g. a top-up); recorded in webhook_events only
 
+  // Forward-only: a late or replayed payment.succeeded must never undo a refund or dispute.
   await tx`
-    update orders set status = 'paid', whop_payment_id = ${str(p.id)}, updated_at = now()
+    update orders set whop_payment_id = ${str(p.id)}, updated_at = now(),
+      status = case when status in ('pending', 'failed') then 'paid' else status end
     where id = ${order.id}`;
 
-  // Direct charges land on the seller's account: post the sale and Ledgerly's fee to the seller.
-  // Platform orders land on Ledgerly; the seller's ledger moves when the transfer completes.
+  // Direct charges land on the seller's account, so the seller's ledger mirrors their Whop
+  // balance: the sale, Ledgerly's fee, and Whop's processing fees (taken from Whop's own
+  // amount_after_fees, never recomputed). Platform orders land on Ledgerly; the seller's
+  // ledger moves when the transfer completes.
   if (order.flow === "direct") {
     const at = str(p.paid_at) ?? event.timestamp;
-    const total = money(p.total);
-    const amount = total ? Number(total.amount) : Number(order.amount);
+    const gross = Number(money(p.total)?.amount ?? order.amount);
+    const net = Number(money(p.amount_after_fees)?.amount ?? gross - Number(order.platform_fee));
+    const whopFees = Math.round((gross - net - Number(order.platform_fee)) * 100) / 100;
     await tx`
       insert into ledger_entries (entry_key, seller_external_id, kind, amount, currency, whop_object_id, occurred_at)
       values
-        (${`payment:${p.id}:sale`}, ${order.seller_external_id}, 'sale', ${amount}, ${order.currency}, ${str(p.id)}, ${at}),
-        (${`payment:${p.id}:platform_fee`}, ${order.seller_external_id}, 'platform_fee', ${-Number(order.platform_fee)}, ${order.currency}, ${str(p.id)}, ${at})
+        (${`payment:${p.id}:sale`}, ${order.seller_external_id}, 'sale', ${gross}, ${order.currency}, ${str(p.id)}, ${at}),
+        (${`payment:${p.id}:platform_fee`}, ${order.seller_external_id}, 'platform_fee', ${-Number(order.platform_fee)}, ${order.currency}, ${str(p.id)}, ${at}),
+        (${`payment:${p.id}:processing_fee`}, ${order.seller_external_id}, 'processing_fee', ${-whopFees}, ${order.currency}, ${str(p.id)}, ${at})
       on conflict (entry_key) do nothing`;
   }
 };
@@ -53,18 +59,29 @@ const paymentFailed: Handler = async (ctx) => {
   await ctx.tx`update orders set status = 'failed', updated_at = now() where id = ${order.id}`;
 };
 
-const refundCreated: Handler = async (ctx) => {
-  const { tx, event } = ctx;
+const refundCreated: Handler = async ({ tx, event }) => {
   const r = event.data;
   const paymentId = ref(r, "payment");
-  if (!paymentId) return;
+  if (!paymentId || !str(r.id)) return;
   const [order] = await tx`select * from orders where whop_payment_id = ${paymentId}`;
   if (!order) return;
-
   const amount = Number(money(r.amount)?.amount ?? r.amount ?? 0);
-  const refunded = Number(order.refunded_amount) + amount;
-  const status = refunded >= Number(order.amount) ? "refunded" : "partially_refunded";
-  await tx`update orders set refunded_amount = ${refunded}, status = ${status}, updated_at = now() where id = ${order.id}`;
+
+  // Record each refund once; only a genuinely new refund moves the order.
+  const inserted = await tx`
+    insert into refunds (whop_refund_id, order_id, amount, currency)
+    values (${str(r.id)}, ${order.id}, ${amount}, ${order.currency})
+    on conflict (whop_refund_id) do nothing
+    returning whop_refund_id`;
+  if (inserted.length === 0) return;
+
+  await tx`
+    update orders set
+      refunded_amount = (select coalesce(sum(amount), 0) from refunds where order_id = ${order.id}),
+      status = case when (select coalesce(sum(amount), 0) from refunds where order_id = ${order.id}) >= amount
+                    then 'refunded' else 'partially_refunded' end,
+      updated_at = now()
+    where id = ${order.id}`;
 
   if (order.flow === "direct") {
     await tx`
