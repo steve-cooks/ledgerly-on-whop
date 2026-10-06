@@ -1,0 +1,35 @@
+{
+  "seller_balances_after_transfer": [
+    {
+      "symbol": "USD",
+      "name": "<redacted>",
+      "balance": "8.48",
+      "value_usd": "8.48",
+      "price_usd": 1,
+      "icon_url": null,
+      "breakdown": {
+        "pending_settlements": [
+          {
+            "date": "2026-10-07",
+            "amount": "8.48"
+          }
+        ],
+        "in_transit": "0.0",
+        "available": "0.0",
+        "pending": "8.48",
+        "reserve": "0.0"
+      }
+    }
+  ],
+  "refund": {
+    "ok": false,
+    "status": 400,
+    "error": {
+      "error": {
+        "type": "bad_request",
+        "message": "You don't have enough funds available in your account to refund this amount",
+        "code": "not_enough_balance"
+      }
+    }
+  }
+}

@@ -1,0 +1,526 @@
+{
+  "payment": {
+    "id": "pay_9pKP6wPzCIIGKf",
+    "status": "paid",
+    "substatus": "refunded",
+    "billing_reason": "one_time",
+    "refundable": false,
+    "retryable": false,
+    "voidable": false,
+    "account_id": "biz_9ejVCcyqXnAYeV",
+    "user": {
+      "id": "user_1oDPcy6nYdRLz",
+      "username": "<redacted>",
+      "name": "<redacted>",
+      "profile_picture": "<redacted>"
+    },
+    "member_id": null,
+    "membership_id": null,
+    "plan_id": "plan_t6RUvCXHxneVH",
+    "product_id": "prod_awN4spd5lvMwz",
+    "line_items": [
+      {
+        "id": "li_DV2Ck2vN6oHT5Ya",
+        "plan_id": "plan_t6RUvCXHxneVH",
+        "plan_title": null,
+        "product_id": "prod_awN4spd5lvMwz",
+        "product_title": "Golden Hour Preset Pack",
+        "label": "Golden Hour Preset Pack",
+        "quantity": 1,
+        "subtotal": {
+          "currency": "usd",
+          "amount": "10.00",
+          "decimals": 2,
+          "display_decimals": 2
+        },
+        "sku": null
+      }
+    ],
+    "promo_code_id": null,
+    "checkout_configuration_id": "ch_SPZIhLoOyafn3su",
+    "shipment_id": null,
+    "currency": "usd",
+    "total": {
+      "currency": "usd",
+      "amount": "10.00",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "subtotal": {
+      "currency": "usd",
+      "amount": "10.00",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "tax_amount": {
+      "currency": "usd",
+      "amount": "0.00",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "tax_behavior": null,
+    "quote_id": null,
+    "refunded_amount": {
+      "currency": "usd",
+      "amount": "10.00",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "tax_refunded_amount": {
+      "currency": "usd",
+      "amount": "0.00",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "auto_refunded": false,
+    "amount_after_fees": {
+      "currency": "usd",
+      "amount": "8.48",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "usd_total": {
+      "currency": "usd",
+      "amount": "10.00",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "payment_method_type": "card",
+    "payment_method_id": "payt_fsXlSbDKsloMp",
+    "payment_instrument": {
+      "payment_method_type": "card",
+      "display_name": "<redacted>",
+      "icons": {
+        "square": {
+          "light": {
+            "svg": "https://content.whop.com/payment_methods/amex/icons/square_light.svg",
+            "png_1x": "https://content.whop.com/payment_methods/amex/icons/square_light_32.png",
+            "png_2x": "https://content.whop.com/payment_methods/amex/icons/square_light_64.png",
+            "png_4x": "https://content.whop.com/payment_methods/amex/icons/square_light_128.png"
+          },
+          "dark": {
+            "svg": "https://content.whop.com/payment_methods/amex/icons/square_dark.svg",
+            "png_1x": "https://content.whop.com/payment_methods/amex/icons/square_dark_32.png",
+            "png_2x": "https://content.whop.com/payment_methods/amex/icons/square_dark_64.png",
+            "png_4x": "https://content.whop.com/payment_methods/amex/icons/square_dark_128.png"
+          }
+        },
+        "card": {
+          "light": {
+            "svg": "https://content.whop.com/payment_methods/amex/icons/card_light.svg",
+            "png_1x": "https://content.whop.com/payment_methods/amex/icons/card_light_30.png",
+            "png_2x": "https://content.whop.com/payment_methods/amex/icons/card_light_60.png",
+            "png_4x": "https://content.whop.com/payment_methods/amex/icons/card_light_120.png"
+          },
+          "dark": {
+            "svg": "https://content.whop.com/payment_methods/amex/icons/card_dark.svg",
+            "png_1x": "https://content.whop.com/payment_methods/amex/icons/card_dark_30.png",
+            "png_2x": "https://content.whop.com/payment_methods/amex/icons/card_dark_60.png",
+            "png_4x": "https://content.whop.com/payment_methods/amex/icons/card_dark_120.png"
+          }
+        }
+      },
+      "card": {
+        "brand": "amex",
+        "last4": "<redacted>",
+        "issuer_identification_number": "<redacted>",
+        "exp_month": "<redacted>",
+        "exp_year": "<redacted>"
+      },
+      "installment_count": null
+    },
+    "customer_email": null,
+    "presentment_total": {
+      "currency": "usd",
+      "amount": "10.00",
+      "decimals": 2,
+      "display_decimals": 2
+    },
+    "customer_phone": null,
+    "billing_address": "<redacted>",
+    "shipping_address": null,
+    "needs_tracking": null,
+    "payments_failed": 0,
+    "failure_message": null,
+    "decline_code": null,
+    "recovery_url": null,
+    "three_ds_verified": false,
+    "verification_checks": {
+      "address_line1": "PASS",
+      "zip_code": "PASS",
+      "card_holder_name": "UNCHECKED",
+      "card_security_code": "UNCHECKED",
+      "authorization_code": "100915",
+      "arn": null
+    },
+    "risk_score": 10,
+    "payment_rule_matches": [],
+    "risk_signals": null,
+    "financing_installments_count": null,
+    "metadata": {
+      "flow": "direct",
+      "ledgerly_order_id": "5011b231-da57-4761-a076-888bb0405c1a",
+      "seller_external_id": "seller_us_mira"
+    },
+    "created_at": "2026-10-06T00:05:06.699Z",
+    "updated_at": "2026-10-06T00:44:28.820Z",
+    "paid_at": "2026-10-06T00:05:07.804Z",
+    "last_payment_attempt_at": "2026-10-06T00:05:07.804Z",
+    "next_payment_attempt_at": null,
+    "refunded_at": "2026-10-06T00:44:27.175Z",
+    "dispute_alerted_at": null,
+    "settlement_time_at": "2026-10-07T00:00:00.000Z",
+    "holds": [],
+    "client_secret": null,
+    "recommended_action": "You don't have access to recommended actions yet. Turn on Whop's Economic Intelligence which executes the action most likely to generate your next dollar. GET /api/v1/accounts/biz_3iFse5N7RWo86f/preferences lists the durations the user can commit to and each one's fee in economic_intelligence_offers. Tell the user they can turn it on with PATCH /api/v1/accounts/biz_3iFse5N7RWo86f/preferences { \"economic_intelligence_duration_key\": <key from an offer> }. And then hit GET /api/v1/economic_intelligence?account_id=biz_3iFse5N7RWo86f to retrieve these actions improving your entire business."
+  },
+  "fees": {
+    "ok": true,
+    "result": {
+      "data": [
+        {
+          "type": "other_fee",
+          "origin": "application_fee",
+          "label": "Application fee",
+          "description": null,
+          "amount": {
+            "currency": "usd",
+            "amount": "0.80",
+            "decimals": 2,
+            "display_decimals": 2
+          },
+          "settlement_amount": {
+            "currency": "usd",
+            "amount": "0.80",
+            "decimals": 2,
+            "display_decimals": 2
+          },
+          "collected_at": "2026-10-06T00:05:07.804Z"
+        },
+        {
+          "type": "processing_fee",
+          "origin": "payment_processing_fixed_fee",
+          "label": "Fixed card processing fee",
+          "description": null,
+          "amount": {
+            "currency": "usd",
+            "amount": "0.30",
+            "decimals": 2,
+            "display_decimals": 2
+          },
+          "settlement_amount": {
+            "currency": "usd",
+            "amount": "0.30",
+            "decimals": 2,
+            "display_decimals": 2
+          },
+          "collected_at": "2026-10-06T00:05:07.804Z"
+        },
+        {
+          "type": "processing_fee",
+          "origin": "payment_processing_percentage_fee",
+          "label": "Payment processing percentage fee",
+          "description": null,
+          "amount": {
+            "currency": "usd",
+            "amount": "0.27",
+            "decimals": 2,
+            "display_decimals": 2
+          },
+          "settlement_amount": {
+            "currency": "usd",
+            "amount": "0.27",
+            "decimals": 2,
+            "display_decimals": 2
+          },
+          "collected_at": "2026-10-06T00:05:07.804Z"
+        },
+        {
+          "type": "processing_fee",
+          "origin": "orchestration_percentage_fee",
+          "label": "Orchestration fee",
+          "description": null,
+          "amount": {
+            "currency": "usd",
+            "amount": "0.08",
+            "decimals": 2,
+            "display_decimals": 2
+          },
+          "settlement_amount": {
+            "currency": "usd",
+            "amount": "0.08",
+            "decimals": 2,
+            "display_decimals": 2
+          },
+          "collected_at": "2026-10-06T00:05:07.804Z"
+        },
+        {
+          "type": "processing_fee",
+          "origin": "stripe_radar_fee",
+          "label": "Radar fee",
+          "description": null,
+          "amount": {
+            "currency": "usd",
+            "amount": "0.07",
+            "decimals": 2,
+            "display_decimals": 2
+          },
+          "settlement_amount": {
+            "currency": "usd",
+            "amount": "0.07",
+            "decimals": 2,
+            "display_decimals": 2
+          },
+          "collected_at": "2026-10-06T00:05:07.804Z"
+        }
+      ],
+      "page_info": {
+        "end_cursor": null,
+        "start_cursor": null,
+        "has_next_page": false,
+        "has_previous_page": false
+      },
+      "recommended_action": "You don't have access to recommended actions yet. Turn on Whop's Economic Intelligence which executes the action most likely to generate your next dollar. GET /api/v1/accounts/biz_3iFse5N7RWo86f/preferences lists the durations the user can commit to and each one's fee in economic_intelligence_offers. Tell the user they can turn it on with PATCH /api/v1/accounts/biz_3iFse5N7RWo86f/preferences { \"economic_intelligence_duration_key\": <key from an offer> }. And then hit GET /api/v1/economic_intelligence?account_id=biz_3iFse5N7RWo86f to retrieve these actions improving your entire business."
+    }
+  },
+  "activity": {
+    "seller": {
+      "ok": true,
+      "result": {
+        "data": [
+          {
+            "object": "ledger_activity",
+            "id": "line_enhxYkU3ZUljRVkxdWVRTU50dWJZOmxpOkM5UTR4UVJXVWpFUlJTeXEyMHF2ZzphYzpVY0NPdkdDUVRHOGE5amxBMms1SzM6bGU6MTp2OmlrOm9uY2hhaW5fd2FsbGV0X3RyYW5zZmVyXzB4NzdkY2VkYjI0YjI5MmQ0OWU2OTdmYzY2MzBjYjA4OTFlYzkwNWViYzIzZGExZTAzZjQwOGYxZTYwZWJiOTY5ZF8weDMxMGVlOThkYTUxYzEwNmIxZTU1NTM1ODcxMzA2N2UzYjA5ZGUxYWIzNmExNmEwYWFhNmE1Mzg5ODQ1OWE5NDk",
+            "line_type": "onchain_wallet_transfer_incoming",
+            "amount": "1000000000",
+            "usd_amount": "10.0",
+            "currency": {
+              "code": "usdt",
+              "precision": "100000000"
+            },
+            "posted_at": "2026-10-06T02:43:50+02:00",
+            "available_at": null,
+            "resource": null,
+            "source": {
+              "object": "onchain_transaction",
+              "id": "<redacted>",
+              "tx_hash": "<redacted>",
+              "chain": "plasma"
+            }
+          },
+          {
+            "object": "ledger_activity",
+            "id": "line_d1VrY2ZkOGtQMW11TTBLd2p2d1FKOmxpOkkxbTZaTTBFUXF2WlVuZUE5OWhBeDphYzpVY0NPdkdDUVRHOGE5amxBMms1SzM6bGU6MTp2OmlrOnJlY2VpcHRfMTEyNjg2MzYx",
+            "line_type": "orchestration_percentage_fee",
+            "amount": "-8000000",
+            "usd_amount": "-0.08",
+            "currency": {
+              "code": "usd",
+              "precision": "100000000"
+            },
+            "posted_at": "2026-10-06T02:05:11+02:00",
+            "available_at": "2026-10-07T00:00:00Z",
+            "resource": null,
+            "source": {
+              "object": "payment",
+              "id": "pay_9pKP6wPzCIIGKf"
+            }
+          },
+          {
+            "object": "ledger_activity",
+            "id": "line_bTFCTGlOVUtReGk2aGFoeFdnblpzOmxpOkkxbTZaTTBFUXF2WlVuZUE5OWhBeDphYzpVY0NPdkdDUVRHOGE5amxBMms1SzM6bGU6MTp2OmlrOnJlY2VpcHRfMTEyNjg2MzYx",
+            "line_type": "payment_gross",
+            "amount": "1000000000",
+            "usd_amount": "10.0",
+            "currency": {
+              "code": "usd",
+              "precision": "100000000"
+            },
+            "posted_at": "2026-10-06T02:05:11+02:00",
+            "available_at": "2026-10-07T00:00:00Z",
+            "resource": null,
+            "source": {
+              "object": "payment",
+              "id": "pay_9pKP6wPzCIIGKf"
+            }
+          },
+          {
+            "object": "ledger_activity",
+            "id": "line_ZldiaTB0d0xSYm5ZQUt5WlpNdW9COmxpOkkxbTZaTTBFUXF2WlVuZUE5OWhBeDphYzpVY0NPdkdDUVRHOGE5amxBMms1SzM6bGU6MTp2OmlrOnJlY2VpcHRfMTEyNjg2MzYx",
+            "line_type": "application_fee",
+            "amount": "-80000000",
+            "usd_amount": "-0.8",
+            "currency": {
+              "code": "usd",
+              "precision": "100000000"
+            },
+            "posted_at": "2026-10-06T02:05:11+02:00",
+            "available_at": "2026-10-07T00:00:00Z",
+            "resource": null,
+            "source": {
+              "object": "payment",
+              "id": "pay_9pKP6wPzCIIGKf"
+            }
+          },
+          {
+            "object": "ledger_activity",
+            "id": "line_T2NQQWNzc1lMTldsS25xSkNHblV2OmxpOkkxbTZaTTBFUXF2WlVuZUE5OWhBeDphYzpVY0NPdkdDUVRHOGE5amxBMms1SzM6bGU6MTp2OmlrOnJlY2VpcHRfMTEyNjg2MzYx",
+            "line_type": "payment_processing_percentage_fee",
+            "amount": "-27000000",
+            "usd_amount": "-0.27",
+            "currency": {
+              "code": "usd",
+              "precision": "100000000"
+            },
+            "posted_at": "2026-10-06T02:05:11+02:00",
+            "available_at": "2026-10-07T00:00:00Z",
+            "resource": null,
+            "source": {
+              "object": "payment",
+              "id": "pay_9pKP6wPzCIIGKf"
+            }
+          },
+          {
+            "object": "ledger_activity",
+            "id": "line_Sk9kM1FKSE5MZWZNNG5SblFPN29YOmxpOkkxbTZaTTBFUXF2WlVuZUE5OWhBeDphYzpVY0NPdkdDUVRHOGE5amxBMms1SzM6bGU6MTp2OmlrOnJlY2VpcHRfMTEyNjg2MzYx",
+            "line_type": "fraud_prevention_fee",
+            "amount": "-7000000",
+            "usd_amount": "-0.07",
+            "currency": {
+              "code": "usd",
+              "precision": "100000000"
+            },
+            "posted_at": "2026-10-06T02:05:11+02:00",
+            "available_at": "2026-10-07T00:00:00Z",
+            "resource": null,
+            "source": {
+              "object": "payment",
+              "id": "pay_9pKP6wPzCIIGKf"
+            }
+          },
+          {
+            "object": "ledger_activity",
+            "id": "line_R1pjbEk4TWRHemZGVXZBcVRqZVpnOmxpOkkxbTZaTTBFUXF2WlVuZUE5OWhBeDphYzpVY0NPdkdDUVRHOGE5amxBMms1SzM6bGU6MTp2OmlrOnJlY2VpcHRfMTEyNjg2MzYx",
+            "line_type": "payment_processing_fixed_fee",
+            "amount": "-30000000",
+            "usd_amount": "-0.3",
+            "currency": {
+              "code": "usd",
+              "precision": "100000000"
+            },
+            "posted_at": "2026-10-06T02:05:11+02:00",
+            "available_at": "2026-10-07T00:00:00Z",
+            "resource": null,
+            "source": {
+              "object": "payment",
+              "id": "pay_9pKP6wPzCIIGKf"
+            }
+          }
+        ],
+        "page_info": {
+          "has_next_page": false,
+          "end_cursor": null,
+          "has_previous_page": false,
+          "start_cursor": null
+        }
+      }
+    },
+    "ledgerly": {
+      "ok": true,
+      "result": {
+        "data": [
+          {
+            "object": "ledger_activity",
+            "id": "line_RkROa3lNcE9vcEtWQjhDbzM0WmZWOmxpOllIS1NUNkZKNG5VNENzWHV3ckhEWDphYzpVY0NPdkdDUVRHOGE5amxBMms1SzM6bGU6MTp2OmlrOm9uY2hhaW5fd2FsbGV0X3RyYW5zZmVyXzB4NzdkY2VkYjI0YjI5MmQ0OWU2OTdmYzY2MzBjYjA4OTFlYzkwNWViYzIzZGExZTAzZjQwOGYxZTYwZWJiOTY5ZF8weDMxMGVlOThkYTUxYzEwNmIxZTU1NTM1ODcxMzA2N2UzYjA5ZGUxYWIzNmExNmEwYWFhNmE1Mzg5ODQ1OWE5NDk",
+            "line_type": "onchain_wallet_transfer_outgoing",
+            "amount": "-1000000000",
+            "usd_amount": "-10.0",
+            "currency": {
+              "code": "usdt",
+              "precision": "100000000"
+            },
+            "posted_at": "2026-10-06T02:43:50+02:00",
+            "available_at": null,
+            "resource": null,
+            "source": {
+              "object": "onchain_transaction",
+              "id": "<redacted>",
+              "tx_hash": "<redacted>",
+              "chain": "plasma"
+            }
+          },
+          {
+            "object": "ledger_activity",
+            "id": "line_NDRBbThEQ3ZudVB0QmU4bm5ndEQ1OmxpOlB5d3d4U3B6ZGx3NExLbEUxczY4TzphYzpVY0NPdkdDUVRHOGE5amxBMms1SzM6bGU6MTp2OmlrOmFwcGxpY2F0aW9uX2ZlZV9wYXlvdXRfMzEwMzc4NQ",
+            "line_type": "application_fee_payout",
+            "amount": "80000000",
+            "usd_amount": "0.8",
+            "currency": {
+              "code": "usd",
+              "precision": "100000000"
+            },
+            "posted_at": "2026-10-06T02:05:12+02:00",
+            "available_at": "2026-10-07T00:00:00Z",
+            "resource": null,
+            "source": {
+              "object": "application_fee",
+              "id": "apfee_LeZQtavSzwtQ"
+            }
+          }
+        ],
+        "page_info": {
+          "has_next_page": false,
+          "end_cursor": null,
+          "has_previous_page": false,
+          "start_cursor": null
+        }
+      }
+    }
+  },
+  "balances": {
+    "seller": [
+      {
+        "symbol": "USD",
+        "name": "<redacted>",
+        "balance": "8.48",
+        "value_usd": "8.48",
+        "price_usd": 1,
+        "icon_url": null,
+        "breakdown": {
+          "pending_settlements": [
+            {
+              "date": "2026-10-07",
+              "amount": "8.48"
+            }
+          ],
+          "in_transit": "0.0",
+          "available": "0.0",
+          "pending": "8.48",
+          "reserve": "0.0"
+        }
+      }
+    ],
+    "ledgerly": [
+      {
+        "symbol": "USD",
+        "name": "<redacted>",
+        "balance": "38.805529",
+        "value_usd": "38.81",
+        "price_usd": 1,
+        "icon_url": null,
+        "breakdown": {
+          "pending_settlements": [
+            {
+              "date": "2026-10-07",
+              "amount": "0.8"
+            }
+          ],
+          "in_transit": "0.0",
+          "available": "38.005529",
+          "pending": "0.8",
+          "reserve": "0.0"
+        }
+      }
+    ]
+  }
+}
