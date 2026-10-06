@@ -120,6 +120,7 @@ export type SellerRow = {
   whop_account_id: string | null;
   whop_status: string | null;
   collection_mode: "direct" | "platform";
+  fee_bps: number | null;
   verification_status: string | null;
   outstanding_actions: number;
   last_reminder_at: Date | null;
@@ -143,7 +144,7 @@ export async function listSellers(opts: { q?: string; filter?: string; page?: nu
   const page = Math.min(pages, Math.max(1, Math.floor(Number(opts.page) || 1)));
 
   const rows = await db<SellerRow[]>`
-    select s.external_id, s.email, s.country, s.title, s.whop_account_id, s.whop_status, s.collection_mode,
+    select s.external_id, s.email, s.country, s.title, s.whop_account_id, s.whop_status, s.collection_mode, s.fee_bps,
            s.verification_status, s.outstanding_actions, r.last_reminder_at
     from sellers s
     left join lateral (
@@ -215,6 +216,50 @@ export async function setCollectionMode(externalId: string, mode: CollectionMode
       values (${externalId}, ${s.collection_mode}, ${to}, ${changedBy})`;
     return { status: "changed", from: s.collection_mode, to };
   });
+}
+
+// ── Ledgerly fee ────────────────────────────────────────────────────────────────────────────
+
+/** The most an operator can set, in basis points (50%). Matches the sellers.fee_bps check. */
+export const MAX_FEE_BPS = 5000;
+
+/**
+ * An operator's fee input: a percentage with up to 2 decimals between 0 and 50 ("10", "7.5%"),
+ * or empty / "default" for the platform default (null). Parsed as text, so no float rounding.
+ */
+export function parseFeePercent(input: FormDataEntryValue | null): { ok: true; bps: number | null } | { ok: false } {
+  const text = (typeof input === "string" ? input : "").trim().replace(/\s*%$/, "");
+  if (text === "" || text.toLowerCase() === "default") return { ok: true, bps: null };
+  const m = /^(\d{1,2})(?:\.(\d{1,2}))?$/.exec(text);
+  if (!m) return { ok: false };
+  const bps = Number(m[1]) * 100 + Number((m[2] ?? "").padEnd(2, "0"));
+  return bps <= MAX_FEE_BPS ? { ok: true, bps } : { ok: false };
+}
+
+export type FeeResult = { status: "changed"; from: number | null; to: number | null } | { status: "unchanged" } | { status: "not_found" };
+
+/**
+ * Set a seller's Ledgerly fee (null = platform default). Applies to NEW checkouts only: each
+ * order stores the fee it was created with, so settlement and refunds of past sales keep theirs.
+ */
+export async function setSellerFee(externalId: string, bps: number | null, changedBy: string): Promise<FeeResult> {
+  if (bps !== null && (!Number.isInteger(bps) || bps < 0 || bps > MAX_FEE_BPS)) throw new Error(`fee must be 0–${MAX_FEE_BPS} bps`);
+  return sql().begin(async (tx): Promise<FeeResult> => {
+    const [s] = await tx`select fee_bps from sellers where external_id = ${externalId} for update`;
+    if (!s) return { status: "not_found" };
+    if (s.fee_bps === bps) return { status: "unchanged" };
+    await tx`update sellers set fee_bps = ${bps}, updated_at = now() where external_id = ${externalId}`;
+    await tx`
+      insert into seller_fee_changes (seller_external_id, from_bps, to_bps, changed_by)
+      values (${externalId}, ${s.fee_bps}, ${bps}, ${changedBy})`;
+    return { status: "changed", from: s.fee_bps, to: bps };
+  });
+}
+
+/** A seller's own fee setting: a number of bps, null for the platform default, undefined if unknown. */
+export async function sellerFeeSetting(externalId: string) {
+  const [s] = await sql()`select fee_bps from sellers where external_id = ${externalId}`;
+  return s ? (s.fee_bps as number | null) : undefined;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────────────────

@@ -28,20 +28,28 @@ export const CheckoutInput = z.object({
 });
 export type CheckoutInput = z.input<typeof CheckoutInput>;
 
-/** Integer-cent math so 8% of 10.00 is exactly 0.80, never 0.7999999. */
+/** A seller's Ledgerly fee in basis points: their own rate, else the platform default. */
+export function sellerFeeBps(seller: { fee_bps?: number | null }) {
+  return seller.fee_bps ?? env().PLATFORM_FEE_BPS;
+}
+
+/** Integer-cent math so 8% of 10.00 is exactly 0.80, never 0.7999999. A 0% rate charges no fee. */
 export function platformFee(price: number, bps = env().PLATFORM_FEE_BPS) {
+  if (!Number.isInteger(bps) || bps < 0) throw new Error("fee rate must be a whole number of basis points");
   const cents = Math.round(price * 100);
   if (Math.abs(cents - price * 100) > 1e-6) throw new Error("price has more than 2 decimals");
   const feeCents = Math.round((cents * bps) / 10_000);
-  if (feeCents <= 0) throw new Error("fee rounds to zero; price too low for the take rate");
+  if (feeCents <= 0 && bps > 0) throw new Error("fee rounds to zero; price too low for the take rate");
   if (feeCents >= cents) throw new Error("fee must be less than the price");
   return { price: cents / 100, fee: feeCents / 100, sellerGross: (cents - feeCents) / 100 };
 }
 
 /**
- * Create a checkout with Ledgerly's 8%. The flow follows the seller's policy:
+ * Create a checkout with Ledgerly's fee: the seller's own rate if an operator set one, else the
+ * platform default. The order stores the fee charged, so later rate changes don't touch it.
+ * The flow follows the seller's policy:
  *  - direct: the buyer pays the seller's connected account; Whop takes Ledgerly's fee as an
- *    application fee. The seller is the merchant.
+ *    application fee (none at 0%). The seller is the merchant.
  *  - platform: the buyer pays Ledgerly's account (Ledgerly is the merchant); the seller's share
  *    is transferred after payment (settlePlatformOrder). Sellers on this policy can never be
  *    given a direct checkout by this service.
@@ -52,7 +60,7 @@ export async function createCheckout(raw: CheckoutInput) {
   const [seller] = await db`select * from sellers where external_id = ${input.sellerExternalId}`;
   if (!seller?.whop_account_id) throw new Error(`seller ${input.sellerExternalId} is not onboarded`);
   const flow = seller.collection_mode as "direct" | "platform";
-  const { price, fee } = platformFee(input.price);
+  const { price, fee } = platformFee(input.price, sellerFeeBps(seller));
 
   // Get-or-create in one statement, so two concurrent requests with one key share one order.
   const [created] = await db`
@@ -99,7 +107,7 @@ async function finishCheckout(order: Row, seller: Row) {
         // product.external_identifier is required alongside product.
         ...({
           ...(productId ? {} : { product: { title: order.title, external_identifier: externalId } }),
-          ...(direct ? { application_fee_amount: Number(order.platform_fee) } : {}),
+          ...(direct && Number(order.platform_fee) > 0 ? { application_fee_amount: Number(order.platform_fee) } : {}),
         } as object),
       },
       redirect_url: `${env().APP_URL}/orders/${order.id}`,
@@ -166,7 +174,7 @@ function orderResult(order: Row) {
 
 /**
  * Seller's share of a platform-collected sale, under the same fee policy as a direct charge:
- * gross − Whop's processing fees on the payment − Ledgerly's 8%.
+ * gross − Whop's processing fees on the payment − Ledgerly's fee stored on the order.
  *
  * Excluded: sales tax (collected from the buyer on top of the price and remitted, so it was
  * never the seller's money) and the tax-service fee (a cost of Ledgerly being merchant of
