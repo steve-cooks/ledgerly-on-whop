@@ -1,15 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { env } from "./env";
+import { supabaseSeller } from "./seller-accounts";
 
 /**
  * Sessions for the pages this service hosts.
  *
  *  - Operators (Ledgerly staff) sign in with Whop: /api/auth/whop/start. Only members of
  *    Ledgerly's Whop team get in (see whop-oauth.ts).
- *  - Sellers sign in through Ledgerly's own site. Until that's wired in, DEMO sign-in links
- *    (`pnpm ledgerly login-link`) stand in for it, for sellers and operators alike. Replace
- *    currentSeller() with a check against Ledgerly's session when integrating (HANDOVER.md).
+ *  - Sellers sign in on the marketplace (/sell/login, Supabase Auth; see seller-accounts.ts).
+ *    DEMO sign-in links (`pnpm ledgerly login-link`) also work, for sellers and operators alike,
+ *    and take precedence over a Supabase session.
  *
  * A token is a signed {purpose, subject, expiry, name?}. The subject is a seller's external id
  * or "operator". A sign-in link ("link", 24h) can only start a session; a session cookie
@@ -105,8 +106,9 @@ async function session() {
 
 /** The signed-in seller's external id, or null (operators are not sellers). */
 export async function currentSeller() {
-  const s = (await session())?.s;
-  return s && s !== OPERATOR ? s : null;
+  const s = await session();
+  if (s) return s.s !== OPERATOR ? s.s : null;
+  return supabaseSeller();
 }
 
 export async function isOperator() {
