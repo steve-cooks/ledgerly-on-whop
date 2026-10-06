@@ -13,7 +13,18 @@ It runs in production at <https://ledgerly-whop.vercel.app> (Next.js on Vercel, 
 
 Around the payments core it hosts an **operator console** for Ledgerly staff (`/`) and a small **demo marketplace** (`/shop` for buyers, `/sell` for sellers) that stands in for Ledgerly's own storefront, so the whole flow can be tried end to end.
 
-**Production, not sandbox.** The assessment asked for the sandbox. Whop's sandbox doesn't support payouts or the embedded payout components yet, and when asked for platform access Whop's team said to use production. Every flow here ran in production with small real amounts: three $2–10 purchases, a $50 balance top-up, and a $10 withdrawal.
+**Production, not sandbox.** The assessment asked for the sandbox. Whop's sandbox doesn't support payouts or the embedded payout components yet, and when asked for platform access Whop's team said to use production. Every flow here ran in production with small real amounts: a handful of $1–10 purchases, a $50 balance top-up, and a $10 withdrawal.
+
+**Where the brief's asks are:**
+
+| The brief asked for | Where it is |
+| --- | --- |
+| Part 1: platform, connected accounts, onboarding, both money flows, embedded payouts, webhook + operations | Ids, scripts and real API responses: [`examples/assessment/`](examples/assessment/README.md) |
+| Idempotent onboarding by external id | [`src/lib/onboarding.ts`](src/lib/onboarding.ts), `POST /api/sellers`, bulk import ([HANDOVER](HANDOVER.md#migrating-the-3000-existing-sellers)) |
+| Checkout with the 8% fee, validated | [`src/lib/checkout.ts`](src/lib/checkout.ts) (`platformFee`, integer cents) and [Money flows](#money-flows) |
+| A webhook consumer they'd trust in production (Standard Webhooks, idempotent, routed to the right seller) | [Webhooks: a consumer to trust in production](#webhooks-a-consumer-to-trust-in-production) |
+| A reconciliation job | [Reconciliation](#reconciliation): `pnpm ledgerly reconcile` and the hourly ops job |
+| Sequence diagrams of both money flows | [Money flows](#money-flows) |
 
 > **Ledgerly team: start with [HANDOVER.md](HANDOVER.md)** (what this is, how it plugs into Ledgerly, deploy, migrate sellers, open decisions) and keep [RUNBOOK.md](RUNBOOK.md) for on-call. This README is the technical reference.
 
@@ -23,7 +34,7 @@ Around the payments core it hosts an **operator console** for Ledgerly staff (`/
 
 1. [Architecture](#architecture)
 2. [Money flows](#money-flows)
-3. [Webhooks: each effect once](#webhooks-each-effect-once)
+3. [Webhooks: a consumer to trust in production](#webhooks-a-consumer-to-trust-in-production)
 4. [Reconciliation](#reconciliation)
 5. [Seller payouts UI](#seller-payouts-ui)
 6. [Operator console](#operator-console)
@@ -169,7 +180,7 @@ Every checkout's plan belongs to a Whop product, identified as `ledgerly-<sku>` 
 
 ---
 
-## Webhooks: each effect once
+## Webhooks: a consumer to trust in production
 
 Whop delivers **at least once**, retries for ~3 days, doesn't guarantee order, and in practice sends near-duplicates: three identical `payout.updated` bodies with different ids for one payout, and two `transfer.completed` per transfer (one per participant). It can also skip a transition entirely (a real payout reached `completed` with no webhook). The consumer handles each case:
 
