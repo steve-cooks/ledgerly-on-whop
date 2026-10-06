@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { ModeToggle, OperatorNotice, ReminderButton, formatDate, modeExplainer, requestTime, timeAgo } from "@/components/operator-controls";
 import { Avatar, Badge, Card, COUNTRY_NAMES, Page, SiteHeader, flag } from "@/components/ui";
+import { REMINDER_VISIBLE_MS, lastReminder, whopDashboardUrl } from "@/lib/operator";
 import { getSellerOverview } from "@/lib/seller-overview";
 import { currentSeller, isOperator } from "@/lib/seller-session";
 
@@ -21,10 +23,10 @@ export default async function SellerPage({
   searchParams,
 }: {
   params: Promise<{ externalId: string }>;
-  searchParams: Promise<{ onboarding?: string }>;
+  searchParams: Promise<{ onboarding?: string; notice?: string; seller?: string }>;
 }) {
   const { externalId } = await params;
-  const { onboarding } = await searchParams;
+  const { onboarding, notice, seller: noticeSeller } = await searchParams;
   // Onboarding returns sellers here before they're signed in to Ledgerly: show details only to
   // that seller or an operator, and a plain confirmation to everyone else.
   if (!(await isOperator()) && (await currentSeller()) !== externalId) {
@@ -51,12 +53,19 @@ export default async function SellerPage({
   const verified = s.identity === "approved";
   const isSeller = (await currentSeller()) === externalId;
   const needsVerification = !verified || s.requiredActions.length > 0;
+  const operator = await isOperator();
+  const reminder = await lastReminder(externalId);
+  const now = requestTime();
+  const recentReminder = reminder && now - reminder.sent_at.getTime() < REMINDER_VISIBLE_MS ? reminder : null;
+  const back = `/sellers/${encodeURIComponent(externalId)}`;
+  const explain = modeExplainer();
 
   return (
     <>
       <SiteHeader section="Seller onboarding" />
       <Page>
         <div className="mx-auto max-w-2xl space-y-6">
+          {operator && notice && <OperatorNotice notice={notice} seller={noticeSeller} now={now} />}
           {onboarding === "done" && (
             <p className="rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent-ink">
               Thanks! Your details were submitted. This page shows your live status from Whop.
@@ -79,6 +88,47 @@ export default async function SellerPage({
             <Badge tone={verified ? "good" : "warn"}>{verified ? "Verified" : "Verification needed"}</Badge>
           </div>
 
+          {operator && (
+            <Card
+              title="Operator tools"
+              description="Only Ledgerly staff see this."
+              action={
+                <a
+                  href={whopDashboardUrl(s.accountId)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="whitespace-nowrap text-sm font-medium text-accent-ink hover:underline"
+                >
+                  Open in Whop ↗
+                </a>
+              }
+            >
+              <div className="divide-y divide-line">
+                <div className="flex flex-col gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm">
+                    <p className="font-medium text-ink">Verification reminder</p>
+                    <p className="text-muted">
+                      {reminder ? `Last sent ${timeAgo(reminder.sent_at, now)} by ${reminder.sent_by}.` : "No reminder sent yet."} The seller sees it
+                      on this page.
+                    </p>
+                  </div>
+                  {needsVerification ? (
+                    <ReminderButton externalId={externalId} back={back} lastSentAt={reminder?.sent_at ?? null} now={now} />
+                  ) : (
+                    <Badge tone="good">Nothing to chase</Badge>
+                  )}
+                </div>
+                <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm">
+                    <p className="font-medium text-ink">Payment mode</p>
+                    <p className="text-muted">{explain[s.collectionMode]} Applies to new purchases.</p>
+                  </div>
+                  <ModeToggle externalId={externalId} mode={s.collectionMode} back={back} />
+                </div>
+              </div>
+            </Card>
+          )}
+
           {isSeller && (
             <a
               href={`/sellers/${encodeURIComponent(externalId)}/payouts`}
@@ -100,6 +150,12 @@ export default async function SellerPage({
             <p className="text-sm">
               Status: <span className="font-medium">{s.identity.replace("_", " ")}</span>
             </p>
+            {isSeller && needsVerification && recentReminder && (
+              <p className="mt-4 rounded-xl bg-warn-soft px-4 py-3 text-sm text-warn">
+                Ledgerly asked you to finish verification on {formatDate(recentReminder.sent_at)}. Withdrawals unlock once Whop has verified
+                you.
+              </p>
+            )}
             {isSeller && needsVerification && (
               <a
                 href={`/api/sellers/${encodeURIComponent(externalId)}/onboarding-link`}
