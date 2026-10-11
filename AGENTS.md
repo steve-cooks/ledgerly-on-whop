@@ -101,6 +101,7 @@ Unit tests need nothing. Integration tests need Docker (they start their own Pos
 - Refunds on direct charges debit the seller's *available* balance (pending sale funds don't count); the application fee is not reversed.
 - A `currency: "usd"` transfer is paid from whatever USD-equivalent balance the sender has: from a USDT-funded balance it moves USDT, and the transfer object still says `usd`. Check per-currency balances with `GET /ledger_accounts/{id}` (careful: that response also contains the owner's personal data).
 - Whop may not send a webhook for a payout's final state; `reconcile --fix` covers it.
+- **The SDK picks the API version, not the key.** Each `@whop/sdk` release sends its own default `Api-Version-Date` (2.2.0 sends `2026-09-29`, 2.4.0 sends `2026-10-09-2`), overriding the key's pin. `src/lib/whop.ts` pins `WHOP_API_VERSION`; bump it only after checking Whop's versioning changelog (from `2026-10-09-1`, `transfers.create` requires `type: "balance"`).
 - A `failed` transfer may be retried by Whop under the same id and later succeed (Whop's API reference).
 - Minimum payout is $10. Every payout starts `in_review / risk_review`.
 - The Elements wallet iframes don't refresh each other; the payouts page remounts `<Wallet>` after a withdrawal.
